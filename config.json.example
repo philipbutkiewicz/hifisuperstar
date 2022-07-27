@@ -1,0 +1,54 @@
+{
+    "Bot": {
+        "Token": "",
+        "Enabled_Cogs": [
+            "Music",
+            "Jokes",
+            "RandomPictures",
+            "Kenja",
+            "Acl",
+            "TTS",
+            "VoiceRecorder",
+            "Asshole"
+        ]
+    },
+    "Web": {
+        "Base_Url": "http://example.com"
+    },
+    "MusicCog": {
+        "Allowed_Mime_Types": [
+            "audio/mpeg",
+            "audio/aac",
+            "audio/m4a",
+            "audio/x-flac",
+            "audio/flac",
+            "audio/ogg",
+            "audio/webm",
+            "audio/wav"
+        ],
+        "Display_Num_Top_Tracks": 10,
+        "Display_Queue_Items": 20
+    },
+    "JokesCog": {
+        "Allowed_Joke_Types": [
+            "dad",
+            "chuck",
+            "bad"
+        ]
+    },
+    "RandomPicturesCog": {
+        "Enabled_Picture_Types": [
+            "cat",
+            "pug"
+        ],
+        "Allowed_File_Types": [
+            "jpg",
+            "jpeg",
+            "png",
+            "gif"
+        ]
+    },
+    "AssholeCog": {
+        "Log_Messages": true
+    }
+}

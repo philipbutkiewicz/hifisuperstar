@@ -1,0 +1,17 @@
+main {
+    padding: 2rem;
+    box-sizing: border-box;
+}
+
+span.code {
+    color: #d44950;
+    border: 1px solid #eee;
+    border-radius: .25rem;
+    padding: .2rem;
+    box-sizing: border-box;
+}
+
+footer {
+    width: 100%;
+    overflow: hidden;
+}

@@ -1,0 +1,9 @@
+{% extends "layouts/error.html" %}
+{% block body %}
+    <div class="d-flex justify-content-center align-items-center" id="main">
+        <h1 class="align-top inline-block align-content-center">{{ code }}</h1>
+        <div class="inline-block align-middle">
+            <h2 class="font-weight-normal lead" id="desc">You fucked up! {{ error }}</h2>
+        </div>
+    </div>
+{% endblock %}

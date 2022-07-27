@@ -1,0 +1,34 @@
+{% extends "layouts/main.html" %}
+{% block title %}
+    Playlist &quot;{{ playlist['name'] }}&quot;
+{% endblock %}
+{% block body %}
+    {% if (not playlist['tracks'] or not (playlist['tracks']|length()) > 0) %}
+        <div class="alert alert-danger" role="alert">
+            Sorry, no tracks are available in this playlist.
+        </div>
+    {% else %}
+        
+        <div class="row">
+            <div class="col">
+                <h3>Playlist &quot;{{ playlist['name'] }}&quot;</h3>
+                There are {{ playlist['tracks']|length() }} items in this playlist.
+            </div>
+        </div>
+
+        <div class="row mt-3">
+            <div class="col">
+                <ol class="list-group list-group-numbered">
+                    {% for track in playlist['tracks'] %}
+                        <li class="list-group-item d-flex justify-content-between align-items-start">
+                            <div class="ms-2 me-auto">
+                                <div class="fw-bold">{{ track['title'] }}</div>
+                                <a href="{{ track['url'] }}" target="_blank">{{ track['url'] }}</a>
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ol>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}
