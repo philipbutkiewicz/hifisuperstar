@@ -7,12 +7,12 @@
             "RandomPictures",
             "Kenja",
             "Acl",
-            "TTS",
             "VoiceRecorder",
             "Asshole"
         ]
     },
     "Web": {
+        "Enabled": true,
         "Base_Url": "http://example.com"
     },
     "MusicCog": {

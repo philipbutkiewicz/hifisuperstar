@@ -123,9 +123,11 @@ class MusicCog(commands.Cog):
             message += f"- {playlist}\n"
         message += '```'
 
-        await ctx.respond(
-            f"You can also view available playlists here: "
-            f"{self.config['Web']['Base_Url']}/playlists/{str(ctx.guild.id)}")
+        if self.config['Web']['Enabled']:
+            await ctx.respond(
+                f"You can also view available playlists here: "
+                f"{self.config['Web']['Base_Url']}/playlists/{str(ctx.guild.id)}")
+
         await ctx.respond(message)
 
     @commands.slash_command(description='Previews the current playlist')
@@ -148,9 +150,10 @@ class MusicCog(commands.Cog):
         if not playlist.load_from_storage():
             return await ctx.respond('Could not find a playlist with that name.')
 
-        await ctx.respond(
-            f"You can view the contents of this playlist here: "
-            f"{self.config['Web']['Base_Url']}/playlists/{str(ctx.guild.id)}/{name}")
+        if self.config['Web']['Enabled']:
+            await ctx.respond(
+                f"You can view the contents of this playlist here: "
+                f"{self.config['Web']['Base_Url']}/playlists/{str(ctx.guild.id)}/{name}")
 
     # noinspection DuplicatedCode
     @commands.slash_command(description='Saves the current playlist')
