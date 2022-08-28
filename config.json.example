@@ -8,7 +8,9 @@
             "Kenja",
             "Acl",
             "VoiceRecorder",
-            "Asshole"
+            "Regex",
+            "ImageSearch",
+            "SelectableRoles"
         ]
     },
     "Web": {
@@ -48,7 +50,11 @@
             "gif"
         ]
     },
-    "AssholeCog": {
+    "RegexCog": {
         "Log_Messages": true
-    }
+    },
+    "ImageSearchCog": {
+        "Max_Results": 10,
+        "Safe_Search": "Moderate"
+    },
 }

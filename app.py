@@ -7,9 +7,11 @@ import discord
 import json
 import sys
 
-from hifisuperstar.cogs.Asshole.AssholeCog import AssholeCog
+from hifisuperstar.cogs.Regex.RegexCog import RegexCog
+from hifisuperstar.cogs.SelectableRoles.SelectableRolesCog import SelectableRolesCog
+from hifisuperstar.cogs.UserJoin.UserJoinCog import UserJoinCog
 from hifisuperstar.core.Server.Events import Events
-from hifisuperstar.io.Logger import log_init, info
+from hifisuperstar.io.Logger import log_init
 from hifisuperstar.cogs.Music.MusicCog import MusicCog
 from hifisuperstar.cogs.Jokes.JokesCog import JokesCog
 from hifisuperstar.cogs.RandomPictures.RandomPicturesCog import RandomPicturesCog
@@ -36,6 +38,10 @@ log_init()
 
 
 # Setup events
+@client.event
+async def on_member_join(member):
+    await Events.run_event('on_member_join', member=member)
+
 @client.event
 async def on_message(message):
     await Events.run_event('on_message', message=message)
@@ -71,8 +77,14 @@ if 'ImageSearch' in config['Bot']['Enabled_Cogs']:
 if 'VoiceRecorder' in config['Bot']['Enabled_Cogs']:
     client.add_cog(VoiceRecorderCog(config))
 
-if 'Asshole' in config['Bot']['Enabled_Cogs']:
-    client.add_cog(AssholeCog(config))
+if 'Regex' in config['Bot']['Enabled_Cogs']:
+    client.add_cog(RegexCog(config))
+
+if 'UserJoin' in config['Bot']['Enabled_Cogs']:
+    client.add_cog(UserJoinCog(config))
+
+if 'SelectableRoles' in config['Bot']['Enabled_Cogs']:
+    client.add_cog(SelectableRolesCog(config))
 
 # Run the client
 client.run(config['Bot']['Token'])

@@ -13,11 +13,11 @@ from hifisuperstar.io.Resources import load_resource, save_resource
 from hifisuperstar.io.Strings import str_rand_crc32
 
 
-class AssholeCog(commands.Cog):
+class RegexCog(commands.Cog):
     def __init__(self, config):
         info(self, 'Registered')
         self.config = config
-        self.responses = load_resource('asshole', 'responses')
+        self.responses = load_resource('regex', 'responses')
         self.setup_events()
 
     def setup_events(self):
@@ -25,7 +25,7 @@ class AssholeCog(commands.Cog):
         return
 
     async def on_message(self, message):
-        info(self, f"Message received {message if self.config['Asshole']['Log_Messages'] else ''}")
+        info(self, f"Message received {message if self.config['RegexCog']['Log_Messages'] else ''}")
 
         if not message.author.bot:
             for key in self.responses:
@@ -33,10 +33,10 @@ class AssholeCog(commands.Cog):
                     info(self, f"Message response match {self.responses[key]}")
                     await message.channel.send(self.responses[key]['response'], reference=message)
 
-    @commands.slash_command(description='Sets an asshole response')
+    @commands.slash_command(description='Sets an regex response')
     @commands.has_role('Admin')
-    async def set_asshole_response(self, ctx, match, response):
-        info(self, 'Set asshole response request')
+    async def set_regex_response(self, ctx, match, response):
+        info(self, 'Set regex response request')
 
         if not await check_server(ctx):
             error(self, 'Server verification failed')
@@ -52,17 +52,17 @@ class AssholeCog(commands.Cog):
         }
 
         try:
-            save_resource('asshole', 'responses', self.responses)
+            save_resource('regex', 'responses', self.responses)
         except Exception as e:
-            error(self, f"Failed to save asshole responses: {e}")
+            error(self, f"Failed to save regex responses: {e}")
             return await ctx.respond('ERROR: Could not save responses')
 
         await ctx.respond('Response set!')
 
-    @commands.slash_command(description='Deletes an asshole response')
+    @commands.slash_command(description='Deletes an regex response')
     @commands.has_role('Admin')
-    async def delete_asshole_response(self, ctx, item_id):
-        info(self, 'Delete asshole response request')
+    async def delete_regex_response(self, ctx, item_id):
+        info(self, 'Delete regex response request')
 
         if not await check_server(ctx):
             error(self, 'Server verification failed')
@@ -75,16 +75,16 @@ class AssholeCog(commands.Cog):
         self.responses.pop(item_id)
 
         try:
-            save_resource('asshole', 'responses', self.responses)
+            save_resource('regex', 'responses', self.responses)
         except Exception as e:
-            error(self, f"Failed to save asshole responses: {e}")
+            error(self, f"Failed to save regex responses: {e}")
             return await ctx.respond('ERROR: Could not save responses')
 
         await ctx.respond('Deleted!')
 
-    @commands.slash_command(description='Lists all asshole responses')
-    async def list_asshole_responses(self, ctx):
-        info(self, 'List asshole responses request')
+    @commands.slash_command(description='Lists all regex responses')
+    async def list_regex_responses(self, ctx):
+        info(self, 'List regex responses request')
 
         if not await check_server(ctx):
             error(self, 'Server verification failed')
@@ -93,7 +93,7 @@ class AssholeCog(commands.Cog):
         if len(self.responses) == 0:
             return await ctx.respond('There are no responses available.')
         info(self, self.responses)
-        message = 'Current asshole responses: ```'
+        message = 'Current regex responses: ```'
         for key in self.responses:
             message += f"{key}: '{self.responses[key]['match']}' responds with '{self.responses[key]['response']}'\n"
         message += '```'
