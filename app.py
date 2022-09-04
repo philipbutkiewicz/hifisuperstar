@@ -43,6 +43,10 @@ async def on_member_join(member):
     await Events.run_event('on_member_join', member=member)
 
 @client.event
+async def on_reaction_add(reaction, member):
+    await Events.run_event('on_reaction_add', reaction=reaction, member=member)
+
+@client.event
 async def on_message(message):
     await Events.run_event('on_message', message=message)
 
