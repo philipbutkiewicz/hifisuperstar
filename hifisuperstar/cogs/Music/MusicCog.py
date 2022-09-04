@@ -472,3 +472,25 @@ class MusicCog(commands.Cog):
         repeat = player.set_repeat_all()
 
         await ctx.respond(f"Repeat is now {'on' if repeat else 'off'}")
+        
+    @commands.slash_command(description='Shows actual music config for this server player')
+    async def get_music_config(self, ctx):
+        info(self, 'Check music config instance request')
+
+        if not await check_server(ctx):
+            error(self, 'Server verification failed')
+            return False
+
+        if not await Acl(ctx.guild.id).check_and_fail(Rule.MUSIC_SHOW_CONFIG, ctx):
+            return False
+
+        info(self, 'Sending music player config to server chat', ctx.guild)
+
+        player = await self.get_player(ctx)
+        if not player:
+            return await ctx.respond('ERROR: Failed to get the music player for this Discord server')
+
+        if not player.config:
+             return await ctx.respond('ERROR: Failed to get the music player config for this Discord server')
+
+        await ctx.respond(f"{player.config}")
