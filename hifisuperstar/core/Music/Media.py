@@ -9,9 +9,6 @@ import threading
 from hifisuperstar.io.Logger import info
 from hifisuperstar.io.Logger import warn
 from hifisuperstar.io.Logger import error
-from hifisuperstar.io.Resources import get_resource_path
-from hifisuperstar.io.Resources import load_resource
-from hifisuperstar.io.Resources import save_resource
 from hifisuperstar.io.Strings import str_hash_sha256
 from yt_dlp import YoutubeDL
 from urllib.parse import urlparse
