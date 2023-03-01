@@ -1,6 +1,6 @@
 # 
 # Hifi Superstar Discord Bot
-# Copyright (c) 2021 - 2022 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
+# Copyright (c) 2021 - 2023 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
 import discord
@@ -65,6 +65,7 @@ class Player:
         self.play_track()
 
     def play_track(self):
+        info(self, 'Called')
         voice = get(self.ctx.bot.voice_clients, guild=self.ctx.guild)
 
         track = self.playlist.get_current_track()
@@ -77,7 +78,7 @@ class Player:
 
         try:
             info(self, f"Getting media source for track ID {track['id']}...", self.ctx.guild)
-            (track_info, url) = media_get_source(track['url'], self.config['MusicCog']['Allowed_Mime_Types'])
+            (track_info, url, playback_url) = media_get_source(track['url'], allowed_mime_types=self.config['MusicCog']['Allowed_Mime_Types'])
         except:
             error(self, f"Could not get media source for track ID {track['id']}", self.ctx.guild)
             return False
@@ -86,7 +87,7 @@ class Player:
         self.play_counter.count_playback(track)
 
         info(self, f"Beginning playback of track ID {track['id']}...", self.ctx.guild)
-        voice.play(discord.FFmpegPCMAudio(url, **{
+        voice.play(discord.FFmpegPCMAudio(playback_url, **{
             'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
             'options': '-vn'
         }), after=self.after_track)
@@ -102,7 +103,7 @@ class Player:
         if query is not None:
             try:
                 info(self, f"Getting media source for a track...", self.ctx.guild)
-                (track_info, url) = media_get_source(query, self.config['MusicCog']['Allowed_Mime_Types'])
+                (track_info, url, playback_url) = media_get_source(query, allowed_mime_types=self.config['MusicCog']['Allowed_Mime_Types'])
             except:
                 return False
 

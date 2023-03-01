@@ -1,6 +1,6 @@
 # 
 # Hifi Superstar Discord Bot
-# Copyright (c) 2021 - 2022 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
+# Copyright (c) 2021 - 2023 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
 import json
@@ -138,7 +138,7 @@ class Playlist:
         return True
 
     def is_over(self):
-        return self.current_index == len(self.tracks)
+        return self.current_index == (len(self.tracks) - 1)
 
     def get_tracks(self):
         return self.tracks

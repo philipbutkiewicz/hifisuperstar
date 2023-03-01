@@ -1,6 +1,6 @@
 # 
 # Hifi Superstar Discord Bot
-# Copyright (c) 2021 - 2022 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
+# Copyright (c) 2021 - 2023 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 from hifisuperstar.io.Logger import warn
 from hifisuperstar.io.Resources import load_resource

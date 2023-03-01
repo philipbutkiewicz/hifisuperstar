@@ -35,4 +35,4 @@ validators==0.18.2
 websockets==10.1
 Werkzeug==2.0.3
 yarl==1.7.2
-youtube-dl==2021.12.17
+yt-dlp==2023.2.17
