@@ -23,7 +23,11 @@
                         <li class="list-group-item d-flex justify-content-between align-items-start">
                             <div class="ms-2 me-auto">
                                 <div class="fw-bold">{{ track['title'] }}</div>
-                                <a href="{{ track['url'] }}" target="_blank">{{ track['url'] }}</a>
+                                {% if ('https:' in track['url']) %}
+                                    <a href="{{ track['url'] }}" target="_blank">{{ track['url'] }}</a>
+                                % else %
+                                    <i>Media query: {{ track['url'] }}</i>
+                                {% endif %}
                             </div>
                         </li>
                     {% endfor %}
