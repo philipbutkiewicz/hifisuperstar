@@ -13,6 +13,7 @@ from hifisuperstar.cogs.UserJoin.UserJoinCog import UserJoinCog
 from hifisuperstar.core.Server.Events import Events
 from hifisuperstar.io.Logger import log_init
 from hifisuperstar.cogs.Music.MusicCog import MusicCog
+from hifisuperstar.cogs.Spotify.SpotifyCog import SpotifyCog
 from hifisuperstar.cogs.Jokes.JokesCog import JokesCog
 from hifisuperstar.cogs.RandomPictures.RandomPicturesCog import RandomPicturesCog
 from hifisuperstar.cogs.Kenja.KenjaCog import KenjaCog
@@ -62,6 +63,9 @@ if len(config['Bot']['Enabled_Cogs']) == 0:
 
 if 'Music' in config['Bot']['Enabled_Cogs']:
     client.add_cog(MusicCog(config))
+
+if 'Spotify' in config['Bot']['Enabled_Cogs']:
+    client.add_cog(SpotifyCog(config))
 
 if 'Jokes' in config['Bot']['Enabled_Cogs']:
     client.add_cog(JokesCog(config))

@@ -85,7 +85,7 @@ class MusicCog(commands.Cog):
         player.stop_track()
 
         if not validators.url(query):
-            if not re.match('^[a-zA-Z0-9\\-]+$', query):
+            if not re.match('^[a-zA-Z0-9\\-\,\!\_\ ]+$', query):
                 warn(self, 'Invalid input', ctx.guild)
                 return await ctx.respond('ERROR: Invalid format, only alphanumeric characters or URLs are allowed.')
 

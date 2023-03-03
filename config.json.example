@@ -3,6 +3,7 @@
         "Token": "",
         "Enabled_Cogs": [
             "Music",
+            "Spotify",
             "Jokes",
             "RandomPictures",
             "Kenja",
@@ -30,6 +31,10 @@
         ],
         "Display_Num_Top_Tracks": 10,
         "Display_Queue_Items": 20
+    },
+    "SpotifyCog": {
+        "Client_ID": "",
+        "Client_Secret": ""
     },
     "JokesCog": {
         "Allowed_Joke_Types": [

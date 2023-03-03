@@ -11,7 +11,7 @@ from yt_dlp import YoutubeDL
 
 
 def media_get_youtube_direct(url):
-    info(None, f"Media: Extracting YouTube link info for query '{url}'...")
+    info(None, f"YouTube: Extracting YouTube link info for query '{url}'...")
     with YoutubeDL(get_ydl_opts()) as ydl:
         yt_info = ydl.extract_info(url, download=False)
 
@@ -26,7 +26,7 @@ def media_get_youtube_direct(url):
 
 
 def media_get_youtube_query(query):
-    info(None, f"Media: Performing a YouTube search for query '{query}'...")
+    info(None, f"YouTube: Performing a YouTube search for query '{query}'...")
     with YoutubeDL(get_ydl_opts()) as ydl:
         yt_info = ydl.extract_info(f"ytsearch:{query}", download=False)['entries'][0]
 
@@ -52,7 +52,7 @@ def media_get_youtube_playlist(url):
 
 
 def download_youtube_media(url, orig_query=None):
-    info(None, f"Media: Starting cache download thread for '{url}'...")
+    info(None, f"YouTube: Starting cache download thread for '{url}'...")
     cache_url = f"cache/{str_hash_sha256(orig_query if orig_query is not None else url)}"
     thread = threading.Thread(target=download_youtube_media_thread, args=(url, cache_url))
     thread.start()
@@ -63,7 +63,7 @@ def download_youtube_media_thread(url):
         try:
             ydl.download([url])
         except:
-            error(None, f"Cache download failed for '{url}'. Download will be resumed the next time this track is played")
+            error(None, f"YouTube: Cache download failed for '{url}'. Download will be resumed the next time this track is played")
 
 
 def get_best_audio_url(yt_info):
