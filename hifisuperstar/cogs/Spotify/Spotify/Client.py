@@ -35,7 +35,7 @@ class Client:
                 return None
 
             playlist = Playlist(ctx.guild.id)
-            playlist.set_name(spotify_playlist['name'])
+            playlist.set_name(f"Spotify - {spotify_playlist['name']}")
 
             for spotify_track in spotify_playlist['tracks']['items']:
                 track_str = f"{', '.join(spotify_artist['name'] for spotify_artist in spotify_track['track']['artists'])} - {spotify_track['track']['name']}"

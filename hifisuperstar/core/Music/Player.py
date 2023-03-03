@@ -79,8 +79,8 @@ class Player:
         try:
             info(self, f"Getting media source for track ID {track['id']}...", self.ctx.guild)
             (track_info, url, playback_url) = media_get_source(track['url'], allowed_mime_types=self.config['MusicCog']['Allowed_Mime_Types'])
-        except:
-            error(self, f"Could not get media source for track ID {track['id']}", self.ctx.guild)
+        except Exception as e:
+            error(self, f"Could not get media source for track ID {track['id']} - {str(e)}", self.ctx.guild)
             return False
 
         info(self, f"Increasing playback count for track ID {track['id']}...", self.ctx.guild)

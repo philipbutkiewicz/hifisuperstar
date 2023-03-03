@@ -51,10 +51,9 @@ def media_get_youtube_playlist(url):
         return yt_info['entries']
 
 
-def download_youtube_media(url, orig_query=None):
+def download_youtube_media(url):
     info(None, f"YouTube: Starting cache download thread for '{url}'...")
-    cache_url = f"cache/{str_hash_sha256(orig_query if orig_query is not None else url)}"
-    thread = threading.Thread(target=download_youtube_media_thread, args=(url, cache_url))
+    thread = threading.Thread(target=download_youtube_media_thread, args=(url,))
     thread.start()
 
 
@@ -74,7 +73,7 @@ def get_best_audio_url(yt_info):
         
     return None if best_format is None else best_format['url']
 
-def get_ydl_opts(query):
+def get_ydl_opts(query=None):
     return {
         'format': 'm4a/bestaudio/best',
         'postprocessors': [{
@@ -82,5 +81,5 @@ def get_ydl_opts(query):
             'preferredcodec': 'm4a'
         }],
         'noplaylist': True,
-        'outtmpl': f"cache/{str_hash_sha256(query)}"
+        'outtmpl': f"cache/{str_hash_sha256(query)}" if query is not None else ''
     }
