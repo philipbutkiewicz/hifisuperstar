@@ -30,7 +30,7 @@ class PlaylistController:
     def show(self, guild_id, name):
         if not re.match('^[0-9]+$', guild_id):
             return render_template('error.html', error='Invalid guild ID.', code=400), 400
-        if not re.match('^[a-zA-Z0-9\\-]+$', name):
+        if not re.match('^[a-zA-Z0-9\\-\,\!\_\ ]+$', name):
             return render_template('error.html', error='Invalid playlist name.', code=400), 400
 
         playlist = self.load_playlist(name, guild_id)
