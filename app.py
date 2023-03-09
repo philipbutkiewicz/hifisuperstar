@@ -6,7 +6,9 @@
 import discord
 import json
 import sys
+import asyncio
 
+from hifisuperstar.Bot import Bot
 from hifisuperstar.cogs.Regex.RegexCog import RegexCog
 from hifisuperstar.cogs.SelectableRoles.SelectableRolesCog import SelectableRolesCog
 from hifisuperstar.cogs.UserJoin.UserJoinCog import UserJoinCog
@@ -14,6 +16,7 @@ from hifisuperstar.core.Server.Events import Events
 from hifisuperstar.io.Logger import log_init
 from hifisuperstar.cogs.Music.MusicCog import MusicCog
 from hifisuperstar.cogs.Spotify.SpotifyCog import SpotifyCog
+from hifisuperstar.cogs.AntiLoudmouth.AntiLoudmouthCog import AntiLoudmouthCog
 from hifisuperstar.cogs.Jokes.JokesCog import JokesCog
 from hifisuperstar.cogs.RandomPictures.RandomPicturesCog import RandomPicturesCog
 from hifisuperstar.cogs.Kenja.KenjaCog import KenjaCog
@@ -32,11 +35,10 @@ with open('config.json', 'r', encoding='utf-8') as f:
     config = json.loads(f.read())
 
 # Configure the Discord client
-client = discord.Bot(intents=(discord.Intents.all()))
+client = Bot(intents=(discord.Intents.all()))
 
 # Setup logging
 log_init()
-
 
 # Setup events
 @client.event
@@ -66,6 +68,9 @@ if 'Music' in config['Bot']['Enabled_Cogs']:
 
 if 'Spotify' in config['Bot']['Enabled_Cogs']:
     client.add_cog(SpotifyCog(config))
+
+if 'AntiLoudmouth' in config['Bot']['Enabled_Cogs']:
+    client.add_cog(AntiLoudmouthCog(config, client))
 
 if 'Jokes' in config['Bot']['Enabled_Cogs']:
     client.add_cog(JokesCog(config))

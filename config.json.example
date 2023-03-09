@@ -4,6 +4,7 @@
         "Enabled_Cogs": [
             "Music",
             "Spotify",
+            "AntiLoudmouth",
             "Jokes",
             "RandomPictures",
             "Kenja",
@@ -35,6 +36,9 @@
     "SpotifyCog": {
         "Client_ID": "",
         "Client_Secret": ""
+    },
+    "AntiLoudmouthCog": {
+        "DecibelsRMSThreshold": 85
     },
     "JokesCog": {
         "Allowed_Joke_Types": [
