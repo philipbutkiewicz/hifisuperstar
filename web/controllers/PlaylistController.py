@@ -4,6 +4,7 @@
 #
 
 import json
+import hashlib
 import os
 import re
 
@@ -53,6 +54,9 @@ class PlaylistController:
             return None
 
         return playlist
+    
+    def str_hash_sha256(string):
+        return hashlib.sha256(string.encode('utf-8')).hexdigest()
 
     @staticmethod
     def get_playlist_storage_path(guild_id):
@@ -67,4 +71,4 @@ class PlaylistController:
         return guild_playlist_storage_path
 
     def get_playlist_path(self, name, guild_id):
-        return os.path.join(self.get_playlist_storage_path(guild_id), f"{name}.json")
+        return os.path.join(self.get_playlist_storage_path(guild_id), f"{self.str_hash_sha256(name)}.json")
