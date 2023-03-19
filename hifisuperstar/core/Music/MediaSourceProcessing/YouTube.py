@@ -42,13 +42,16 @@ def media_get_youtube_query(query):
         return track_info, url, get_best_audio_url(yt_info)
 
 def media_get_youtube_playlist(url):
-    ydl_opts = get_ydl_opts()
-    ydl_opts['noplaylist'] = False
-    ydl_opts['download'] = False
+    try:
+        ydl_opts = get_ydl_opts()
+        ydl_opts['noplaylist'] = False
+        ydl_opts['download'] = False
 
-    with YoutubeDL(ydl_opts) as ydl:
-        yt_info = ydl.extract_info(url, False)
-        return yt_info['entries']
+        with YoutubeDL(ydl_opts) as ydl:
+            yt_info = ydl.extract_info(url, False)
+            return yt_info['entries']
+    except:
+        return None
 
 
 def download_youtube_media(url):
