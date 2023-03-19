@@ -46,6 +46,7 @@ def media_get_youtube_playlist(url):
         ydl_opts = get_ydl_opts()
         ydl_opts['noplaylist'] = False
         ydl_opts['download'] = False
+        ydl_opts['ignoreerrors'] = True
 
         with YoutubeDL(ydl_opts) as ydl:
             yt_info = ydl.extract_info(url, False)
