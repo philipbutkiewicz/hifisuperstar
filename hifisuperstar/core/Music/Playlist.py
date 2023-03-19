@@ -8,6 +8,7 @@ import os
 
 from hifisuperstar.io.Logger import error, warn
 from hifisuperstar.io.Strings import str_rand_crc32
+from hifisuperstar.io.Strings import str_hash_sha256
 
 
 class Playlist:
@@ -31,7 +32,7 @@ class Playlist:
         return guild_playlist_storage_path
 
     def get_playlist_path(self):
-        return os.path.join(self.get_playlist_storage_path(), f"{self.name}.json")
+        return os.path.join(self.get_playlist_storage_path(), f"{str_hash_sha256(self.name)}.json")
 
     def get_available_playlists(self):
         list_path = os.path.join(self.get_playlist_storage_path(), 'list.json')

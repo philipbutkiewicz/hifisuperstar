@@ -29,8 +29,7 @@ class VoiceRecorderCog(commands.Cog):
 
         index = 0
         for audio in self.sink.get_all_audio():
-            audio_path = os.path.join(audio_path, f"recording"
-                                                  f"-{datetime.now().strftime('%d-%m-%Y %H.%M.%S')}-{index}.ogg")
+            audio_path = os.path.join(audio_path, f"recording-{datetime.now().strftime('%d-%m-%Y %H.%M.%S')}-{index}.ogg")
 
             info(self, f"Writing audio to '{audio_path}'...")
             with open(audio_path, 'wb') as outfile:

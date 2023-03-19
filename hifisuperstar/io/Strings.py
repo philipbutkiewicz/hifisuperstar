@@ -7,6 +7,8 @@ import zlib
 import hashlib
 import random
 
+allowed_chars_regex = '^[a-zA-Z0-9\~\`\!\@\#\$\%\^\&\*\(\)\-\_\=\+\[\]\{\}\|\;\'\:\"\,\.\/\<\>\?\ ]+$'
+
 
 def str_rand_crc32():
     return hex(zlib.crc32(random.randbytes(64)))

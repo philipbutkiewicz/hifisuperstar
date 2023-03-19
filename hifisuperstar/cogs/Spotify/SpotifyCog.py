@@ -15,6 +15,7 @@ from hifisuperstar.core.Server.Server import check_server
 from hifisuperstar.io.Logger import error
 from hifisuperstar.io.Logger import warn
 from hifisuperstar.io.Logger import info
+from hifisuperstar.io.Strings import allowed_chars_regex
 
 
 class SpotifyCog(commands.Cog):
@@ -41,7 +42,7 @@ class SpotifyCog(commands.Cog):
             error(self, f"Failed getting a Spotify playlist with URL '{playlist_url}'!")
             return await ctx.respond('Sorry, something went wrong. Couldn\'t fetch your playlist from Spotify.')
         
-        if not re.match('^[a-zA-Z0-9\\-\,\!\_\ ]+$', playlist.name):
+        if not re.match(allowed_chars_regex, playlist.name):
             warn(self, 'Invalid input', ctx.guild)
             return await ctx.respond(f"The playlist name '{playlist.name}' contains illegal characters, please limit the playlist name to alphanumeric characters and some allowed symbols (space, comma, exclamation mark, dash, underscore)")
         

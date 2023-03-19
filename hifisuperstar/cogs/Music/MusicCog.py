@@ -10,6 +10,7 @@ from hifisuperstar.core.Music.Playlist import Playlist
 from hifisuperstar.io.Logger import info
 from hifisuperstar.io.Logger import warn
 from hifisuperstar.io.Logger import error
+from hifisuperstar.io.Strings import allowed_chars_regex
 from hifisuperstar.core.Acl.Acl import Acl
 from hifisuperstar.core.Acl import Rule
 from hifisuperstar.core.Server.Server import check_server
@@ -85,7 +86,7 @@ class MusicCog(commands.Cog):
         player.stop_track()
 
         if not validators.url(query):
-            if not re.match('^[a-zA-Z0-9\\-\,\!\_\ ]+$', query):
+            if not re.match(allowed_chars_regex, query):
                 warn(self, 'Invalid input', ctx.guild)
                 return await ctx.respond('ERROR: Invalid format, only alphanumeric characters or URLs are allowed.')
 
@@ -142,7 +143,7 @@ class MusicCog(commands.Cog):
             return False
 
         if not validators.url(name):
-            if not re.match('^[a-zA-Z0-9\\-]+$', name):
+            if not re.match(allowed_chars_regex, name):
                 warn(self, 'Invalid input', ctx.guild)
                 return await ctx.respond('ERROR: Invalid format, only alphanumeric characters or URLs are allowed.')
 
@@ -173,7 +174,7 @@ class MusicCog(commands.Cog):
             return await ctx.respond('ERROR: Failed to get the player for this Discord server')
 
         if not validators.url(name):
-            if not re.match('^[a-zA-Z0-9\\-]+$', name):
+            if not re.match(allowed_chars_regex, name):
                 warn(self, 'Invalid input', ctx.guild)
                 return await ctx.respond('ERROR: Invalid format, only alphanumeric characters or URLs are allowed.')
 
@@ -200,7 +201,7 @@ class MusicCog(commands.Cog):
             return False
 
         if not validators.url(name):
-            if not re.match('^[a-zA-Z0-9\\-]+$', name):
+            if not re.match(allowed_chars_regex, name):
                 warn(self, 'Invalid input', ctx.guild)
                 return await ctx.respond('ERROR: Invalid format, only alphanumeric characters or URLs are allowed.')
 
