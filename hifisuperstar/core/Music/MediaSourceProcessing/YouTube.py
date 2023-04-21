@@ -82,7 +82,7 @@ def get_best_audio_url(yt_info):
 def get_ydl_opts(query=None):
     cache_tpl = f"cache/{str_hash_sha256(query)}" if query is not None else ''
     normalized_path = os.path.join('normalized', cache_tpl)
-    if os.path.exists(normalized_path):
+    if os.path.exists(f'{normalized_path}.m4a'):
         cache_tpl = normalized_path
         warn(None, f'Normalized file in "{normalized_path}" does exist!')
     else:
