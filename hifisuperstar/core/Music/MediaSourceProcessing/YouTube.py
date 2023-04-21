@@ -82,6 +82,8 @@ def get_ydl_opts(query=None):
     cache_tpl = f"cache/{str_hash_sha256(query)}" if query is not None else ''
     if os.path.exists(os.path.join('normalized', cache_tpl)):
         cache_tpl = os.path.join('normalized', cache_tpl)
+    else:
+        print(f'Normalized file in "{cache_tpl}" does not exist!')
     return {
         'format': 'm4a/bestaudio/best',
         'postprocessors': [{
