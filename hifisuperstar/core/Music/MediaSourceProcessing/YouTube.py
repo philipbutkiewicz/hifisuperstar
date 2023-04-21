@@ -4,6 +4,7 @@
 #
 
 import threading
+import os
 from hifisuperstar.io.Logger import info
 from hifisuperstar.io.Logger import error
 from hifisuperstar.io.Strings import str_hash_sha256
@@ -78,6 +79,9 @@ def get_best_audio_url(yt_info):
     return None if best_format is None else best_format['url']
 
 def get_ydl_opts(query=None):
+    cache_tpl = f"cache/{str_hash_sha256(query)}" if query is not None else ''
+    if os.path.exists(os.path.join('normalized', cache_tpl)):
+        cache_tpl = os.path.join('normalized', cache_tpl)
     return {
         'format': 'm4a/bestaudio/best',
         'postprocessors': [{
@@ -85,5 +89,5 @@ def get_ydl_opts(query=None):
             'preferredcodec': 'm4a'
         }],
         'noplaylist': True,
-        'outtmpl': f"cache/{str_hash_sha256(query)}" if query is not None else ''
+        'outtmpl': cache_tpl
     }
