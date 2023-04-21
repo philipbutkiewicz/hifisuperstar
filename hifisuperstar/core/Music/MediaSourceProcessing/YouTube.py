@@ -7,6 +7,7 @@ import threading
 import os
 from hifisuperstar.io.Logger import info
 from hifisuperstar.io.Logger import error
+from hifisuperstar.io.Logger import warn
 from hifisuperstar.io.Strings import str_hash_sha256
 from yt_dlp import YoutubeDL
 
@@ -82,8 +83,9 @@ def get_ydl_opts(query=None):
     cache_tpl = f"cache/{str_hash_sha256(query)}" if query is not None else ''
     if os.path.exists(os.path.join('normalized', cache_tpl)):
         cache_tpl = os.path.join('normalized', cache_tpl)
+        warn(self, f'Normalized file in "{cache_tpl}" does exists')
     else:
-        print(f'Normalized file in "{cache_tpl}" does not exist!')
+        warn(self, f'Normalized file in "{cache_tpl}" does not exist!')
     return {
         'format': 'm4a/bestaudio/best',
         'postprocessors': [{
