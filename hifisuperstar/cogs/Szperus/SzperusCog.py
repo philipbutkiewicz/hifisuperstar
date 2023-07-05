@@ -21,7 +21,7 @@ class SzperusCog(commands.Cog):
     async def on_message(self, message):
         info(self, f"Message received")
 
-        if message.author.id == "263312826653736960" and message.author.display_name != "Szperus":
+        if message.author.id == 263312826653736960 and not message.author.display_name == "Szperus":
             try:
                 await message.author.edit(nick="Szperus")
             except Forbidden:
