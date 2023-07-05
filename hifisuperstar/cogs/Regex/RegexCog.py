@@ -4,8 +4,6 @@
 #
 import re
 
-import discord
-
 from hifisuperstar.core.Server.Events import Events
 from hifisuperstar.core.Server.Server import check_server
 from hifisuperstar.io.Logger import info, error
@@ -33,11 +31,6 @@ class RegexCog(commands.Cog):
             for key in self.responses:
                 if re.match(self.responses[key]['match'], message.content):
                     info(self, f"Message response match {self.responses[key]}")
-                    if message.author.id == "263312826653736960" and message.author.display_name != "Szperus":
-                        try:
-                            await message.author.edit(nick="Szperus")
-                        except discord.Forbidden:
-                            pass
                     await message.channel.send(self.responses[key]['response'], reference=message)
 
     @commands.slash_command(description='Sets an regex response')

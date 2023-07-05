@@ -23,6 +23,7 @@ from hifisuperstar.cogs.Kenja.KenjaCog import KenjaCog
 from hifisuperstar.cogs.Acl.AclCog import AclCog
 from hifisuperstar.cogs.ImageSearch.ImageSearchCog import ImageSearchCog
 from hifisuperstar.cogs.VoiceRecorder.VoiceRecorderCog import VoiceRecorderCog
+from hifisuperstar.cogs.Szperus.SzperusCog import SzperusCog
 from hifisuperstar.io.UnbufferedOutput import UnbufferedOutput
 
 # Disable output buffering
@@ -98,6 +99,9 @@ if 'UserJoin' in config['Bot']['Enabled_Cogs']:
 
 if 'SelectableRoles' in config['Bot']['Enabled_Cogs']:
     client.add_cog(SelectableRolesCog(config))
+
+if 'Szperus' in config['Bot']['Enabled_Cogs']:
+    client.add_cog(SzperusCog(config))
 
 # Run the client
 client.run(config['Bot']['Token'])

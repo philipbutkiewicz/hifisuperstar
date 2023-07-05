@@ -5,6 +5,7 @@
 
 import re
 import validators
+from hifisuperstar.core.Server.Events import Events
 from hifisuperstar.core.Music.Player import Player
 from hifisuperstar.core.Music.Playlist import Playlist
 from hifisuperstar.io.Logger import info

@@ -12,7 +12,8 @@
             "VoiceRecorder",
             "Regex",
             "ImageSearch",
-            "SelectableRoles"
+            "SelectableRoles",
+            "Szperus"
         ]
     },
     "Web": {
