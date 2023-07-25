@@ -32,7 +32,8 @@
             "audio/wav"
         ],
         "Display_Num_Top_Tracks": 10,
-        "Display_Queue_Items": 20
+        "Display_Queue_Items": 20,
+        "Radio_URL": "https://example.com/radio.ogg"
     },
     "SpotifyCog": {
         "Client_ID": "",

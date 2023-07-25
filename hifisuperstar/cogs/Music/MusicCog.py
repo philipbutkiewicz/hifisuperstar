@@ -65,6 +65,37 @@ class MusicCog(commands.Cog):
 
         await ctx.respond(f"Queued '{track_info['title'] if not query is None else 'the current playlist'}'!")
 
+    @commands.slash_command(description='Plays radio')
+    async def play_radio(self, ctx, query=None):
+        info(self, 'Radio playback request')
+
+        if not await check_server(ctx):
+            error(self, 'Server verification failed')
+            return False
+
+        if not await Acl(ctx.guild.id).check_and_fail(Rule.MUSIC_PLAY, ctx):
+            return False
+
+        info(self, f"Radio playback request{': ' + query if not query is None else ''}", ctx.guild)
+
+        if not await join_voice(ctx):
+            return False
+
+        player = await self.get_player(ctx)
+        if not player:
+            error(self, 'Failed to get the player', ctx.guild)
+            return await ctx.respond('ERROR: Failed to get the player for this Discord server')
+        
+        await player.stop_track()
+        player.get_playlist().clear()
+
+        await ctx.respond('Hold on, let me look that up...')
+        if not player.queue_radio():
+            error(self, 'Failed to queue radio playback', ctx.guild)
+            return await ctx.respond('ERROR: Failed to queue radio playback')
+
+        await ctx.respond('Queued radio playback!')
+
     @commands.slash_command(description='This command can queue a YouTube playlist if supplied with a valid URL, '
                                         'or load a saved playlist')
     async def playlist(self, ctx, query):

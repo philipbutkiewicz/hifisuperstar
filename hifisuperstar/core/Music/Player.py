@@ -7,7 +7,7 @@ import discord
 import validators
 from hifisuperstar.core.Music.Media import media_get_source
 from hifisuperstar.core.Music.Media import media_get_playlist
-from hifisuperstar.io.Strings import str_hash_crc32
+from hifisuperstar.io.Strings import str_hash_crc32, str_rand_crc32
 from hifisuperstar.io.Logger import info
 from hifisuperstar.io.Logger import error
 from hifisuperstar.core.Music.PlayCounter import PlayCounter
@@ -24,6 +24,7 @@ class Player:
         self.play_counter = PlayCounter(self.ctx.guild.id)
         self.playlist = Playlist(self.ctx.guild.id)
 
+        self.streaming = False
         self.stopped = True
         self.prev = False
         self.jump_to_index = -1
@@ -36,6 +37,9 @@ class Player:
 
     def after_track(self, arg):
         info(self, f"Track is over, args: {arg}", self.ctx.guild)
+
+        if self.streaming:
+            return False
 
         if self.stopped:
             self.prev = False
@@ -64,29 +68,38 @@ class Player:
 
         self.play_track()
 
-    def play_track(self):
+    def play_track(self, stream_url=None):
         info(self, 'Called')
         voice = get(self.ctx.bot.voice_clients, guild=self.ctx.guild)
 
-        track = self.playlist.get_current_track()
-        if track is None:
-            error(self, 'No tracks in the playlist', self.ctx.guild)
-            return False
+        if self.streaming:
+            self.stop_track()
 
-        if voice.is_playing():
-            voice.stop()
+        playback_url = None
+        track = None
+        if stream_url is None:
+            track = self.playlist.get_current_track()
+            if track is None:
+                error(self, 'No tracks in the playlist', self.ctx.guild)
+                return False
 
-        try:
-            info(self, f"Getting media source for track ID {track['id']}...", self.ctx.guild)
-            (track_info, url, playback_url) = media_get_source(track['url'], allowed_mime_types=self.config['MusicCog']['Allowed_Mime_Types'])
-        except Exception as e:
-            error(self, f"Could not get media source for track ID {track['id']} - {str(e)}", self.ctx.guild)
-            return False
+            if voice.is_playing():
+                voice.stop()
 
-        info(self, f"Increasing playback count for track ID {track['id']}...", self.ctx.guild)
-        self.play_counter.count_playback(track)
+            try:
+                info(self, f"Getting media source for track ID {track['id']}...", self.ctx.guild)
+                (track_info, url, playback_url) = media_get_source(track['url'], allowed_mime_types=self.config['MusicCog']['Allowed_Mime_Types'])
+            except Exception as e:
+                error(self, f"Could not get media source for track ID {track['id']} - {str(e)}", self.ctx.guild)
+                return False
 
-        info(self, f"Beginning playback of track ID {track['id']}...", self.ctx.guild)
+            info(self, f"Increasing playback count for track ID {track['id']}...", self.ctx.guild)
+            self.play_counter.count_playback(track)
+        else:
+            self.streaming = True
+            playback_url = stream_url
+
+        info(self, f"Beginning playback of {track['id'] if track is not None else 'radio'}...", self.ctx.guild)
         voice.play(discord.FFmpegPCMAudio(playback_url, **{
             'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
             'options': '-vn'
@@ -115,7 +128,15 @@ class Player:
         if not voice.is_playing():
             self.play_track()
 
-        return track_info['info'] if query is not None else True
+        return track_info['info'] if query is not None else True    
+    
+    def queue_radio(self):
+        voice = get(self.ctx.bot.voice_clients, guild=self.ctx.guild)
+
+        if not voice.is_playing():
+            self.play_track(self.config['MusicCog']['Radio_URL'])
+
+        return True
 
     async def queue_playlist(self, query):
         info(self, f"Attempting to queue a playlist: {query}...", self.ctx.guild)
@@ -189,6 +210,7 @@ class Player:
         self.jump_to_index = -1
         self.prev = False
         self.stopped = True
+        self.streaming = False
 
         await voice.disconnect()
 
