@@ -171,7 +171,7 @@ class Player:
         return self.playlist.get_tracks()
 
     def skip_track(self):
-        if self.stopped:
+        if self.stopped or self.streaming:
             return False
 
         self.jump_to_index = -1
@@ -180,7 +180,7 @@ class Player:
         voice.stop()
 
     def skip_track_to_index(self, index):
-        if self.stopped:
+        if self.stopped or self.streaming:
             return False
 
         self.jump_to_index = index
@@ -190,7 +190,7 @@ class Player:
         voice.stop()
 
     def prev_track(self):
-        if self.stopped:
+        if self.stopped or self.streaming:
             return False
 
         self.jump_to_index = -1
