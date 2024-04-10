@@ -5,5 +5,5 @@ requests==2.27.1
 spotipy==2.22.1
 validators==0.18.2
 yt_dlp==2023.2.17
-GitPython==3.1.31
+GitPython==3.1.41
 numpy==1.22.2
