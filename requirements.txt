@@ -1,6 +1,6 @@
 py-cord==2.4.1
 duckduckgo_search==0.9
-Flask==2.0.2
+Flask==2.2.5
 requests==2.27.1
 spotipy==2.22.1
 validators==0.18.2
