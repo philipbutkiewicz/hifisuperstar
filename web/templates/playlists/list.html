@@ -1,0 +1,33 @@
+{% extends "layouts/main.html" %}
+{% block title %}
+    Playlists
+{% endblock %}
+{% block body %}
+    {% if (not playlists or not (playlists|length()) > 0) %}
+        <div class="alert alert-danger" role="alert">
+            Sorry, there are no playlists available.
+        </div>
+    {% else %}
+        
+        <div class="row">
+            <div class="col">
+                <h3>Playlists</h3>
+                There are {{ playlists|length() }} playlists available. Please note that you are only viewing playlists saved on your Discord server.
+            </div>
+        </div>
+
+        <div class="row mt-3">
+            <div class="col">
+                <ol class="list-group list-group-numbered">
+                    {% for playlist in playlists %}
+                        <li class="list-group-item d-flex justify-content-between align-items-start">
+                            <div class="ms-2 me-auto">
+                                <div class="fw-bold"><a href="{{ url_for('playlists.show', guild_id=guild_id, name=playlist) }}">{{ playlist }}</a></div>
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ol>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}

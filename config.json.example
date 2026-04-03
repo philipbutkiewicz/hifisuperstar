@@ -1,0 +1,71 @@
+{
+    "Bot": {
+        "Token": "",
+        "Enabled_Cogs": [
+            "Music",
+            "Spotify",
+            "AntiLoudmouth",
+            "Jokes",
+            "RandomPictures",
+            "Kenja",
+            "Acl",
+            "VoiceRecorder",
+            "Regex",
+            "ImageSearch",
+            "SelectableRoles",
+            "Szperus"
+        ]
+    },
+    "Web": {
+        "Enabled": false,
+        "Base_Url": "http://example.com"
+    },
+    "MusicCog": {
+        "Allowed_Mime_Types": [
+            "audio/mpeg",
+            "audio/aac",
+            "audio/m4a",
+            "audio/x-flac",
+            "audio/flac",
+            "audio/ogg",
+            "audio/webm",
+            "audio/wav"
+        ],
+        "Display_Num_Top_Tracks": 10,
+        "Display_Queue_Items": 20,
+        "Radio_URL": "https://example.com/radio.ogg"
+    },
+    "SpotifyCog": {
+        "Client_ID": "",
+        "Client_Secret": ""
+    },
+    "AntiLoudmouthCog": {
+        "DecibelsRMSThreshold": 85
+    },
+    "JokesCog": {
+        "Allowed_Joke_Types": [
+            "dad",
+            "chuck",
+            "bad"
+        ]
+    },
+    "RandomPicturesCog": {
+        "Enabled_Picture_Types": [
+            "cat",
+            "pug"
+        ],
+        "Allowed_File_Types": [
+            "jpg",
+            "jpeg",
+            "png",
+            "gif"
+        ]
+    },
+    "RegexCog": {
+        "Log_Messages": true
+    },
+    "ImageSearchCog": {
+        "Max_Results": 10,
+        "Safe_Search": "Moderate"
+    },
+}
