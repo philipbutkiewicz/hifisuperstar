@@ -151,19 +151,22 @@ class MusicCog(commands.Cog):
         playlists = player.get_playlist().get_available_playlists()
         if not playlists:
             error(self, 'Failed to list playlists', interaction.guild)
-            return await respond(interaction, f"ERROR: Failed to list playlists")
+            return await respond(interaction, 'ERROR: Failed to list playlists')
 
-        message = 'Available playlists:```'
-        for playlist in playlists:
-            message += f"- {playlist}\n"
-        message += '```'
+        embed = discord.Embed(
+            title='Available Playlists',
+            description='\n'.join(f"`{i + 1}.` {name}" for i, name in enumerate(playlists)),
+            color=discord.Color.blurple()
+        )
 
         if self.config['Web']['Enabled']:
-            await respond(interaction,
-                f"You can also view available playlists here: "
-                f"{self.config['Web']['Base_Url']}/playlists/{str(interaction.guild.id)}")
+            embed.add_field(
+                name='Web',
+                value=f"[Browse playlists]({self.config['Web']['Base_Url']}/playlists/{str(interaction.guild.id)})",
+                inline=False
+            )
 
-        await respond(interaction, message)
+        await respond(interaction, embed=embed)
 
     @app_commands.command(name='playlist_preview', description='Previews the current playlist')
     async def playlist_preview(self, interaction: discord.Interaction, name: str):
@@ -382,13 +385,24 @@ class MusicCog(commands.Cog):
         max_items = playlist.get_current_track_index() + (display_queue_items / 2) \
             if playlist.get_current_track_index() + (display_queue_items / 2) < len(queue) else len(queue)
 
-        message = '```'
+        lines = []
         for i in range(int(min_items), int(max_items)):
             is_current = current_track['id'] == queue[i]['id'] if current_track else False
-            message += f"{'==> ' if is_current else ''}{queue.index(queue[i]) + 1}. {queue[i]['title']}\n"
-        message += '```'
+            number = queue.index(queue[i]) + 1
+            title = queue[i]['title']
+            url = queue[i].get('url')
+            track_label = f"[{title}]({url})" if url else title
+            prefix = '▶ ' if is_current else f"`{number}.`  "
+            lines.append(f"{prefix}{track_label}")
 
-        await respond(interaction, message)
+        embed = discord.Embed(
+            title='Queue',
+            description='\n'.join(lines),
+            color=discord.Color.blurple()
+        )
+        embed.set_footer(text=f"Showing {int(max_items) - int(min_items)} of {len(queue)} track(s)")
+
+        await respond(interaction, embed=embed)
 
     @app_commands.command(name='top_tracks', description='Shows the most played tracks (in descending order)')
     async def top_tracks(self, interaction: discord.Interaction):
