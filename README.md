@@ -1,6 +1,9 @@
 # HiFi Superstar
 Why use HiFi Superstar over some other JavaScript [***cough***] based bot? Because it's free of weeaboo references.
 
+## DEPRECATION WARNING
+This project is very old and was written when I was starting to pick up Python. It hasn't received many updates apart from ocassional bugfixes and package updates. Beware.
+
 ## What does it do?
 What doesn't it do? Well, for now it plays music and tells horrible jokes. More features to come.
 
