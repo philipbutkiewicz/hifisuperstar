@@ -7,7 +7,6 @@ import re
 import discord
 import validators
 from discord import app_commands
-from hifisuperstar.core.Server.Events import Events
 from hifisuperstar.core.Music.Player import Player
 from hifisuperstar.core.Music.Playlist import Playlist
 from hifisuperstar.io.Logger import info

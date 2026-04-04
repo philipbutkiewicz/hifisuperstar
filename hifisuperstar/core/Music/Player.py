@@ -3,6 +3,7 @@
 # Copyright (c) 2021 - 2023 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
+import asyncio
 import discord
 import validators
 from hifisuperstar.core.Music.Media import media_get_source
@@ -47,6 +48,10 @@ class Player:
         if self.playlist.is_over():
             info(self, 'Playlist is over', self.interaction.guild)
             self.prev = False
+            asyncio.run_coroutine_threadsafe(
+                self.interaction.client.change_presence(activity=None),
+                self.interaction.client.loop
+            )
             return False
 
         if not self.options['repeat'] and self.jump_to_index == -1:
@@ -108,6 +113,16 @@ class Player:
         voice.source = discord.PCMVolumeTransformer(voice.source, volume=self.options['volume'])
 
         self.stopped = False
+        asyncio.run_coroutine_threadsafe(
+            self.interaction.client.change_presence(
+                activity=discord.Activity(
+                    type=discord.ActivityType.listening,
+                    name=track['title'] if track is not None else None,
+                    title=track['title'] if track is not None else None
+                )
+            ),
+            self.interaction.client.loop
+        )
 
     def queue_track(self, query=None):
         voice = self.interaction.guild.voice_client
@@ -212,6 +227,7 @@ class Player:
         self.stopped = True
         self.streaming = False
 
+        await self.interaction.client.change_presence(activity=None)
         await voice.disconnect()
 
     def set_volume(self, volume):
