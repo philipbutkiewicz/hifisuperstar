@@ -4,8 +4,13 @@
 #
 
 import requests
+from urllib.parse import urlparse
 from hifisuperstar.io.Logger import info
 from hifisuperstar.io.Logger import warn
+
+
+_ALLOWED_SCHEMES = {'http', 'https'}
+_REQUEST_TIMEOUT = 10  # seconds
 
 
 def media_get_direct(url, allowed_mime_types=None):
@@ -23,8 +28,12 @@ def media_get_direct(url, allowed_mime_types=None):
 def media_check_url(url, allowed_mime_types=None):
     info(None, f"Media: Checking media URL '{url}'...")
 
-    res = requests.get(url)
-    content_type = res.headers['Content-Type']
+    parsed = urlparse(url)
+    if parsed.scheme not in _ALLOWED_SCHEMES:
+        raise Exception(f"URL scheme '{parsed.scheme}' is not allowed")
+
+    res = requests.get(url, timeout=_REQUEST_TIMEOUT, allow_redirects=False)
+    content_type = res.headers.get('Content-Type', '')
     if allowed_mime_types and content_type not in allowed_mime_types:
         warn(None, f"Media: Invalid content type '{content_type}' for URL '{url}'!")
         raise Exception(f"MIME type {content_type} is not allowed")

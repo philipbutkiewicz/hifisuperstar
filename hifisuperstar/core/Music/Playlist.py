@@ -37,7 +37,8 @@ class Playlist:
     def get_available_playlists(self):
         list_path = os.path.join(self.get_playlist_storage_path(), 'list.json')
         if os.path.exists(list_path):
-            return json.loads(open(list_path, encoding='utf-8').read())
+            with open(list_path, encoding='utf-8') as f:
+                return json.loads(f.read())
 
         return []
 
@@ -47,7 +48,8 @@ class Playlist:
         if not os.path.exists(playlist_path):
             return False
 
-        playlist = json.loads(open(playlist_path, encoding='utf-8').read())
+        with open(playlist_path, encoding='utf-8') as f:
+            playlist = json.loads(f.read())
         if not playlist:
             return False
 

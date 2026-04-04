@@ -19,7 +19,8 @@ def load_resource(res_type, res_param=None):
     if not os.path.exists(res_path):
         return {}
 
-    res = json.loads(open(res_path, encoding='utf-8').read())
+    with open(res_path, encoding='utf-8') as f:
+        res = json.loads(f.read())
     if not res:
         return {}
 

@@ -13,6 +13,10 @@ from routes import playlists_bp
 app = Flask(__name__)
 app.config.from_object('config.ProdConfig')
 
+# Fail fast if SECRET_KEY is not configured
+from config import ProdConfig
+ProdConfig.validate()
+
 # Register utils
 Repo.register(app)
 

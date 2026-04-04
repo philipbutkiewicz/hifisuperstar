@@ -46,7 +46,9 @@ class PlaylistController:
         if not os.path.exists(playlist_path):
             return None
 
-        playlist = json.loads(open(playlist_path, encoding='utf-8').read())
+        with open(playlist_path, encoding='utf-8') as f:
+            playlist = json.loads(f.read())
+
         if not playlist:
             return None
 
