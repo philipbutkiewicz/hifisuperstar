@@ -431,20 +431,26 @@ class MusicCog(commands.Cog):
         if len(tracks) == 0:
             return await respond(interaction, 'ERROR: Not enough top tracks to display')
 
-        await respond(interaction, f"Displaying {display_num_top_tracks} top tracks:")
-
         tracks_keys = list(tracks.keys())
 
         if display_num_top_tracks > len(tracks):
             display_num_top_tracks = len(tracks)
 
-        message = '```'
+        lines = []
         for i in range(0, display_num_top_tracks):
             track = tracks[tracks_keys[i]]
-            message += f"{i + 1}. {track['title']} ({track['count']} plays)\n"
-        message += '```'
+            url = track.get('url')
+            track_label = f"[{track['title']}]({url})" if url else track['title']
+            lines.append(f"`{i + 1}.` {track_label} — **{track['count']}** play{'s' if track['count'] != 1 else ''}")
 
-        await respond(interaction, message)
+        embed = discord.Embed(
+            title='Top Tracks',
+            description='\n'.join(lines),
+            color=discord.Color.gold()
+        )
+        embed.set_footer(text=f"Showing top {display_num_top_tracks} track(s)")
+
+        await respond(interaction, embed=embed)
 
     @app_commands.command(name='volume', description='Sets playback volume to a provided value between 0 and 1.0')
     async def volume(self, interaction: discord.Interaction, volume: str):

@@ -95,9 +95,14 @@ class RegexCog(commands.Cog):
         if len(self.responses) == 0:
             return await respond(interaction, 'There are no responses available.')
         info(self, self.responses)
-        message = 'Current regex responses: ```'
-        for key in self.responses:
-            message += f"{key}: '{self.responses[key]['match']}' responds with '{self.responses[key]['response']}'\n"
-        message += '```'
 
-        await respond(interaction, message)
+        lines = [
+            f"`{key}` — match: `{self.responses[key]['match']}` → `{self.responses[key]['response']}`"
+            for key in self.responses
+        ]
+        embed = discord.Embed(
+            title='Regex Responses',
+            description='\n'.join(lines),
+            color=discord.Color.blurple()
+        )
+        await respond(interaction, embed=embed)
