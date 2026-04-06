@@ -73,6 +73,8 @@
         "OpenAI_API_URL": "",
         "OpenAI_API_Key": "",
         "OpenAI_API_Model": "",
-        "Sys_Prompt": null
+        "Max_Tokens": 1024,
+        "Sys_Prompt": null,
+        "Reasoning_Effort": "low"
     }
 }
