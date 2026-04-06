@@ -13,7 +13,7 @@
             "Regex",
             "ImageSearch",
             "SelectableRoles",
-            "Szperus"
+            "Halyna"
         ]
     },
     "Web": {
@@ -68,4 +68,11 @@
         "Max_Results": 10,
         "Safe_Search": "Moderate"
     },
+    "LLMCog": {
+        "Log_Messages": true,
+        "OpenAI_API_URL": "",
+        "OpenAI_API_Key": "",
+        "OpenAI_API_Model": "",
+        "Sys_Prompt": null
+    }
 }
