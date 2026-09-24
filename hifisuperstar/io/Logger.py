@@ -3,20 +3,16 @@
 # Copyright (c) 2021 - 2023 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
-import logging
 import sys
+from loguru import logger
+
+_LOG_FORMAT = '<green>{time:MM/DD/YYYY hh:mm:ss A}</green> [<level>{level}</level>] {message}'
 
 
 def log_init():
-    logging.basicConfig(
-        level=logging.INFO,
-        format='(%(asctime)s) [%(name)s:%(levelname)s] %(message)s',
-        datefmt='%m/%d/%Y %I:%M:%S %p',
-        handlers=[
-            logging.FileHandler('app.log', encoding='utf-8'),
-            logging.StreamHandler(stream=open(sys.stdout.fileno(), mode='w', encoding='utf-8', closefd=False))
-        ]
-    )
+    logger.remove()
+    logger.add(sys.stdout, level='INFO', format=_LOG_FORMAT, colorize=True)
+    logger.add('app.log', level='INFO', format=_LOG_FORMAT, encoding='utf-8')
 
 
 def build_message(module, message, guild=None):
@@ -25,12 +21,12 @@ def build_message(module, message, guild=None):
 
 
 def info(module, message, guild=None):
-    logging.info(build_message(module, message, guild))
+    logger.info(build_message(module, message, guild))
 
 
 def error(module, message, guild=None):
-    logging.error(build_message(module, message, guild))
+    logger.error(build_message(module, message, guild))
 
 
 def warn(module, message, guild=None):
-    logging.warning(build_message(module, message, guild))
+    logger.warning(build_message(module, message, guild))

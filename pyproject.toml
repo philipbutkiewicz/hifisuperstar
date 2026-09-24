@@ -18,4 +18,5 @@ dependencies = [
     "langchain-openai>=1.1.13",
     "ddgs>=9.13.1",
     "boto3>=1.34.149",
+    "loguru>=0.7.3",
 ]
