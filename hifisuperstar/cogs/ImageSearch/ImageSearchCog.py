@@ -101,5 +101,5 @@ class ImageSearchCog(commands.Cog):
         if len(images) == 0:
             return await respond(interaction, 'No results found.')
 
-        i = random.randint(0, len(images))
+        i = random.randint(0, len(images) - 1)
         await respond(interaction, f"{images[i]['title']}\n{images[i]['image']}")

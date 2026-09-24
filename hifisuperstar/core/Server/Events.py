@@ -15,6 +15,6 @@ class Events:
 
     @staticmethod
     async def run_event(event_name, **args):
-        matches = [item for item in Events.events if item['name'] is event_name]
+        matches = [item for item in Events.events if item['name'] == event_name]
         for match in matches:
             await match['func'](**args)

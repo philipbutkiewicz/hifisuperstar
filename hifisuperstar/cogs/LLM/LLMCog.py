@@ -37,22 +37,36 @@ class LLMCog(commands.Cog):
         info(self, 'Registered')
         self.config = config
         self.bot = bot
-        self.enabled = False
-        self.channel_id = None
-        self.mode = 'default'
-        self.sys_prompt = _resolve_prompt(self.config['LLMCog'].get('Sys_Prompt') or _DEFAULT_SYS_PROMPT)
-        self.conversation_history = []
+        self.guild_states = {}
         Events.add_event('on_message', self.on_message)
 
-    def _build_llm(self) -> ChatOpenAI:
+    def _default_state(self) -> dict:
+        return {
+            'enabled': False,
+            'channel_id': None,
+            'mode': 'default',
+            'sys_prompt': _resolve_prompt(self.config['LLMCog'].get('Sys_Prompt') or _DEFAULT_SYS_PROMPT),
+            'conversation_history': [],
+            'model': self.config['LLMCog']['OpenAI_API_Model'],
+            'max_tokens': self.config['LLMCog']['Max_Tokens'],
+            'reasoning_effort': self.config['LLMCog'].get('Reasoning_Effort', 'none')
+        }
+
+    def _get_state(self, guild_id) -> dict:
+        if guild_id not in self.guild_states:
+            self.guild_states[guild_id] = self._default_state()
+
+        return self.guild_states[guild_id]
+
+    def _build_llm(self, state) -> ChatOpenAI:
         kwargs = dict(
-            model=self.config['LLMCog']['OpenAI_API_Model'],
-            max_tokens=self.config['LLMCog']['Max_Tokens'],
+            model=state['model'],
+            max_tokens=state['max_tokens'],
             api_key=self.config['LLMCog']['OpenAI_API_Key'],
             base_url=self.config['LLMCog']['OpenAI_API_URL'],
             timeout=None,
         )
-        reasoning_effort = self.config['LLMCog'].get('Reasoning_Effort', 'none')
+        reasoning_effort = state['reasoning_effort']
         if reasoning_effort and reasoning_effort != 'none':
             kwargs['model_kwargs'] = {'reasoning_effort': reasoning_effort}
         return ChatOpenAI(**kwargs)
@@ -60,7 +74,12 @@ class LLMCog(commands.Cog):
     async def on_message(self, message):
         info(self, f"Message received {message if self.config['LLMCog']['Log_Messages'] else ''}")
 
-        if not self.enabled:
+        if message.guild is None:
+            return
+
+        state = self._get_state(message.guild.id)
+
+        if not state['enabled']:
             return
 
         if message.author == message.guild.me:
@@ -69,11 +88,11 @@ class LLMCog(commands.Cog):
         if message.author.bot and message.guild.me not in message.mentions:
             return
 
-        if self.channel_id is not None and message.channel.id != self.channel_id:
+        if state['channel_id'] is not None and message.channel.id != state['channel_id']:
             return
 
         async with message.channel.typing():
-            response, direct_posts = await self.generate_response(message, f"<@{message.author.display_name}> {message.content}")
+            response, direct_posts = await self.generate_response(state, message, f"<@{message.author.display_name}> {message.content}")
 
         if response:
             chunks = [response[i:i + 1900] for i in range(0, len(response), 1900)]
@@ -88,7 +107,7 @@ class LLMCog(commands.Cog):
         if not await check_server(interaction):
             return
 
-        self.channel_id = channel.id
+        self._get_state(interaction.guild.id)['channel_id'] = channel.id
         await respond(interaction, f"LLM will now only respond in {channel.mention}!")
 
     @app_commands.command(name='llm_clear_channel', description='Removes the channel restriction so the LLM responds everywhere')
@@ -97,7 +116,7 @@ class LLMCog(commands.Cog):
         if not await check_server(interaction):
             return
 
-        self.channel_id = None
+        self._get_state(interaction.guild.id)['channel_id'] = None
         await respond(interaction, 'LLM channel restriction removed.')
 
     @app_commands.command(name='toggle_llm', description='Toggles LLM responses on or off')
@@ -106,11 +125,12 @@ class LLMCog(commands.Cog):
         if not await check_server(interaction):
             return
 
-        self.enabled = not self.enabled
-        if not self.enabled:
-            self.conversation_history = []
+        state = self._get_state(interaction.guild.id)
+        state['enabled'] = not state['enabled']
+        if not state['enabled']:
+            state['conversation_history'] = []
 
-        await respond(interaction, f"LLM responses {'enabled' if self.enabled else 'disabled'}!")
+        await respond(interaction, f"LLM responses {'enabled' if state['enabled'] else 'disabled'}!")
 
     @app_commands.command(name='llm_set_model_id', description='Sets the LLM model ID')
     @app_commands.checks.has_role('Admin')
@@ -118,7 +138,7 @@ class LLMCog(commands.Cog):
         if not await check_server(interaction):
             return
 
-        self.config['LLMCog']['OpenAI_API_Model'] = model_id
+        self._get_state(interaction.guild.id)['model'] = model_id
         await respond(interaction, f"LLM model ID set to `{model_id}`!")
 
     @app_commands.command(name='llm_context_clear', description='Clears the LLM conversation context')
@@ -126,7 +146,7 @@ class LLMCog(commands.Cog):
         if not await check_server(interaction):
             return
 
-        self.conversation_history = []
+        self._get_state(interaction.guild.id)['conversation_history'] = []
         await respond(interaction, 'LLM conversation context cleared!')
 
     @app_commands.command(name='llm_toggle_mode', description='Toggles LLM response mode between default and evil')
@@ -135,15 +155,16 @@ class LLMCog(commands.Cog):
         if not await check_server(interaction):
             return
 
-        if self.mode == 'default':
-            self.mode = 'evil'
-            self.sys_prompt = _resolve_prompt(self.config['LLMCog'].get('Sys_Prompt') or _EVIL_SYS_PROMPT)
+        state = self._get_state(interaction.guild.id)
+        if state['mode'] == 'default':
+            state['mode'] = 'evil'
+            state['sys_prompt'] = _resolve_prompt(self.config['LLMCog'].get('Sys_Prompt') or _EVIL_SYS_PROMPT)
         else:
-            self.mode = 'default'
-            self.sys_prompt = _resolve_prompt(self.config['LLMCog'].get('Sys_Prompt') or _DEFAULT_SYS_PROMPT)
+            state['mode'] = 'default'
+            state['sys_prompt'] = _resolve_prompt(self.config['LLMCog'].get('Sys_Prompt') or _DEFAULT_SYS_PROMPT)
 
-        self.conversation_history = []
-        await respond(interaction, f"LLM mode set to `{self.mode}`. Conversation history cleared.")
+        state['conversation_history'] = []
+        await respond(interaction, f"LLM mode set to `{state['mode']}`. Conversation history cleared.")
 
     @app_commands.command(name='llm_set_max_tokens', description='Sets the maximum number of tokens for LLM responses')
     @app_commands.checks.has_role('Admin')
@@ -154,7 +175,7 @@ class LLMCog(commands.Cog):
         if max_tokens < 1 or max_tokens > 16384:
             return await respond(interaction, 'ERROR: max_tokens must be between 1 and 16384.')
 
-        self.config['LLMCog']['Max_Tokens'] = max_tokens
+        self._get_state(interaction.guild.id)['max_tokens'] = max_tokens
         await respond(interaction, f"LLM max tokens set to `{max_tokens}`!")
 
     @app_commands.command(name='llm_set_reasoning_effort', description='Sets the LLM reasoning effort')
@@ -171,7 +192,7 @@ class LLMCog(commands.Cog):
         if not await check_server(interaction):
             return
 
-        self.config['LLMCog']['Reasoning_Effort'] = effort.value
+        self._get_state(interaction.guild.id)['reasoning_effort'] = effort.value
         await respond(interaction, f"LLM reasoning effort set to `{effort.value}`!")
 
     @app_commands.command(name='llm_list_models', description='Lists models available on the LLM API')
@@ -203,13 +224,13 @@ class LLMCog(commands.Cog):
             description='\n'.join(f'`{m}`' for m in models),
             color=discord.Color.blurple()
         )
-        embed.set_footer(text=f"{len(models)} model(s) — current: {self.config['LLMCog']['OpenAI_API_Model']}")
+        embed.set_footer(text=f"{len(models)} model(s) — current: {self._get_state(interaction.guild.id)['model']}")
         await respond(interaction, embed=embed)
 
-    async def generate_response(self, message, message_text) -> tuple:
+    async def generate_response(self, state, message, message_text) -> tuple:
         """Returns (response_text | None, direct_posts: list[str])."""
-        if len(self.conversation_history) > 64:
-            self.conversation_history = self.conversation_history[-64:]
+        if len(state['conversation_history']) > 64:
+            state['conversation_history'] = state['conversation_history'][-64:]
 
         tools = list(_STATIC_TOOLS)
         music_cog = self.bot.get_cog('MusicCog')
@@ -220,7 +241,7 @@ class LLMCog(commands.Cog):
         info(self, f"Tools available: {[t.name for t in tools]}")
         tools_by_name = {t.name: t for t in tools}
 
-        llm = self._build_llm()
+        llm = self._build_llm(state)
         llm_with_tools = llm.bind_tools(tools)
 
         tool_hint = (
@@ -231,8 +252,8 @@ class LLMCog(commands.Cog):
         )
 
         lc_messages = [
-            SystemMessage(content=self.sys_prompt + ' ' + tool_hint),
-            *self.conversation_history,
+            SystemMessage(content=state['sys_prompt'] + ' ' + tool_hint),
+            *state['conversation_history'],
             HumanMessage(content=message_text),
         ]
 
@@ -272,9 +293,9 @@ class LLMCog(commands.Cog):
             response_text = _TOKEN_STRIP_RE.sub('', response_text).strip()
 
             if not response_text:
-                return None
+                return None, []
 
-            self.conversation_history += [
+            state['conversation_history'] += [
                 HumanMessage(content=message_text),
                 AIMessage(content=response_text),
             ]

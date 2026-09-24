@@ -33,7 +33,7 @@ class SelectableRolesCog(commands.Cog):
         save_resource('selectableroles', guild_id, self.selectable_roles[guild_id])
 
     def load_message_ids(self, guild_id):
-        self.selectable_roles[guild_id] = load_resource('messageids', guild_id)
+        self.message_ids[guild_id] = load_resource('messageids', guild_id)
 
     def save_message_ids(self, guild_id):
         save_resource('messageids', guild_id, self.message_ids[guild_id])
