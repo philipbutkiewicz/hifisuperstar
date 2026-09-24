@@ -3,6 +3,7 @@
 # Copyright (c) 2021 - 2023 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
+import os
 import asyncio
 import discord
 import validators
@@ -96,10 +97,13 @@ class Player:
             playback_url = stream_url
 
         info(self, f"Beginning playback of {track['id'] if track is not None else 'radio'}...", self.interaction.guild)
-        voice.play(discord.FFmpegPCMAudio(playback_url, **{
-            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-            'options': '-vn'
-        }), after=self.after_track)
+        # -reconnect flags are HTTP-only; ffmpeg rejects them outright when playing a local cached file
+        is_local_file = os.path.exists(playback_url) if playback_url else False
+        ffmpeg_options = {'options': '-vn'}
+        if not is_local_file:
+            ffmpeg_options['before_options'] = '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
+
+        voice.play(discord.FFmpegPCMAudio(playback_url, **ffmpeg_options), after=self.after_track)
 
         voice.source = discord.PCMVolumeTransformer(voice.source, volume=self.options['volume'])
 

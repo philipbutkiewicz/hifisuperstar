@@ -24,7 +24,7 @@ def media_get_youtube_direct(url):
 
         download_youtube_media(url)
 
-        return track_info, url, get_best_audio_url(yt_info)
+        return track_info, url, get_cached_track_path(url) or get_best_audio_url(yt_info)
 
 
 def media_get_youtube_query(query):
@@ -41,7 +41,7 @@ def media_get_youtube_query(query):
 
         download_youtube_media(url)
 
-        return track_info, url, get_best_audio_url(yt_info)
+        return track_info, url, get_cached_track_path(url) or get_best_audio_url(yt_info)
 
 def media_get_youtube_playlist(url):
     # A single extract_info call can silently stop following continuation pages partway through very
@@ -109,6 +109,12 @@ def get_best_audio_url(yt_info):
             best_format = format
         
     return None if best_format is None else best_format['url']
+
+
+def get_cached_track_path(url):
+    # Playing from the already-downloaded local file avoids real-time network jitter causing playback skips
+    cache_path = f"cache/{str_hash_sha256(url)}.m4a"
+    return cache_path if os.path.exists(cache_path) else None
 
 def get_ydl_opts(query=None):
     cache_tpl = f"cache/{str_hash_sha256(query)}" if query is not None else ''
