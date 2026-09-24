@@ -1,4 +1,4 @@
-# 
+#
 # Hifi Superstar Discord Bot
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
@@ -15,7 +15,9 @@ async def respond(interaction: discord.Interaction, content=None, **kwargs):
 
 async def check_server(interaction: discord.Interaction):
     if interaction.guild is None:
-        await respond(interaction, 'ERROR: You need to message me from a server channel.')
+        await respond(
+            interaction, "ERROR: You need to message me from a server channel."
+        )
         return False
 
     return True
@@ -23,7 +25,9 @@ async def check_server(interaction: discord.Interaction):
 
 async def join_voice(interaction: discord.Interaction):
     if interaction.user.voice is None:
-        await respond(interaction, 'ERROR: You need to join a voice channel to do that.')
+        await respond(
+            interaction, "ERROR: You need to join a voice channel to do that."
+        )
         return False
 
     channel = interaction.user.voice.channel

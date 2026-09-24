@@ -3,8 +3,8 @@
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
-from langchain_core.tools import tool
 from ddgs import DDGS
+from langchain_core.tools import tool
 
 
 @tool
@@ -13,13 +13,13 @@ def search_images(query: str) -> str:
     try:
         results = DDGS().images(
             query,
-            region='wt-wt',
-            safesearch='Moderate',
+            region="wt-wt",
+            safesearch="Moderate",
             timelimit=None,
             max_results=5,
         )
         if not results:
-            return 'No images found.'
-        return '\n'.join(f"{r['title']}: {r['image']}" for r in results)
+            return "No images found."
+        return "\n".join(f"{r['title']}: {r['image']}" for r in results)
     except Exception as exc:
-        return f'Image search failed: {exc}'
+        return f"Image search failed: {exc}"

@@ -3,9 +3,10 @@
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
-import numpy as np
-import wave
 import math
+import wave
+
+import numpy as np
 
 
 def get_chunk_log_rms(chunk):
@@ -23,7 +24,7 @@ def get_chunk_log_rms(chunk):
 def get_avg_log_rms_fromfile(fname):
     avg_rms = 0
 
-    with wave.open(fname, 'rb') as f:
+    with wave.open(fname, "rb") as f:
         data = f.readframes(1024)
 
         log_rms_values = []

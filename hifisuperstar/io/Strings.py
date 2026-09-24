@@ -1,13 +1,15 @@
-# 
+#
 # Hifi Superstar Discord Bot
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
-import zlib
 import hashlib
 import random
+import zlib
 
-allowed_chars_regex = r'^[a-zA-Z0-9\~\`\!\@\#\$\%\^\&\*\(\)\-\_\=\+\[\]\{\}\|\;\'\:\"\,\.\/\<\>\?\ ]+$'
+allowed_chars_regex = (
+    r"^[a-zA-Z0-9\~\`\!\@\#\$\%\^\&\*\(\)\-\_\=\+\[\]\{\}\|\;\'\:\"\,\.\/\<\>\?\ ]+$"
+)
 
 
 def str_rand_crc32():
@@ -19,8 +21,8 @@ def str_rand_sha256():
 
 
 def str_hash_crc32(string):
-    return hex(zlib.crc32(string.encode('utf-8')))
+    return hex(zlib.crc32(string.encode("utf-8")))
 
 
 def str_hash_sha256(string):
-    return hashlib.sha256(string.encode('utf-8')).hexdigest()
+    return hashlib.sha256(string.encode("utf-8")).hexdigest()

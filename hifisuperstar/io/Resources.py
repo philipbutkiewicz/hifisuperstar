@@ -3,13 +3,15 @@
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
-import os
 import json
+import os
 
 
 def get_resource_path(res_type, res_param):
-    storage_path = 'storage' if res_type != 'res' else 'res'
-    res_name = f"{res_type}.{res_param}.json" if res_type != 'res' else f"{res_param}.json"
+    storage_path = "storage" if res_type != "res" else "res"
+    res_name = (
+        f"{res_type}.{res_param}.json" if res_type != "res" else f"{res_param}.json"
+    )
     return os.path.join(storage_path, res_name)
 
 
@@ -19,7 +21,7 @@ def load_resource(res_type, res_param=None):
     if not os.path.exists(res_path):
         return {}
 
-    with open(res_path, encoding='utf-8') as f:
+    with open(res_path, encoding="utf-8") as f:
         res = json.loads(f.read())
     if not res:
         return {}
@@ -30,5 +32,5 @@ def load_resource(res_type, res_param=None):
 def save_resource(res_type, res_param, data):
     res_path = get_resource_path(res_type, res_param)
 
-    with open(res_path, 'w', encoding='utf-8') as file:
+    with open(res_path, "w", encoding="utf-8") as file:
         json.dump(data, file)

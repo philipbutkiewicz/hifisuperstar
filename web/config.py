@@ -7,8 +7,8 @@ import os
 
 
 class Config:
-    SECRET_KEY = os.environ.get('FLASK_SECRET_KEY', '')
-    BASE_APP_PATH = '../'
+    SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "")
+    BASE_APP_PATH = "../"
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -25,10 +25,10 @@ class Config:
 class DevConfig(Config):
     TESTING = True
     DEBUG = True
-    FLASK_ENV = 'development'
+    FLASK_ENV = "development"
 
 
 class ProdConfig(Config):
     TESTING = False
     DEBUG = False
-    FLASK_ENV = 'production'
+    FLASK_ENV = "production"

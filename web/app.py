@@ -1,34 +1,34 @@
-# 
+#
 # Hifi Superstar Discord Bot
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
-from flask import Flask
-from flask import render_template
+from flask import Flask, render_template
+from routes import home_bp, playlists_bp
 from util.git.repo import Repo
-from routes import home_bp
-from routes import playlists_bp
 
 # Register app
 app = Flask(__name__)
-app.config.from_object('config.ProdConfig')
+app.config.from_object("config.ProdConfig")
 
 # Fail fast if SECRET_KEY is not configured
 from config import ProdConfig
+
 ProdConfig.validate()
 
 # Register utils
 Repo.register(app)
 
+
 # Error handlers
 @app.errorhandler(404)
 def page_not_found(e):
-    return render_template('errors/404.html'), 404
+    return render_template("errors/404.html"), 404
 
 
 @app.errorhandler(500)
 def internal_server_error(e):
-    return render_template('errors/500.html'), 404
+    return render_template("errors/500.html"), 404
 
 
 # Register routes
@@ -36,6 +36,5 @@ app.register_blueprint(home_bp)
 app.register_blueprint(playlists_bp)
 
 # Run the app
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run()
-

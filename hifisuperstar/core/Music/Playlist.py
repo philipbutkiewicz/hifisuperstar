@@ -1,4 +1,4 @@
-# 
+#
 # Hifi Superstar Discord Bot
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
@@ -7,12 +7,10 @@ import json
 import os
 
 from hifisuperstar.io.Logger import error, warn
-from hifisuperstar.io.Strings import str_rand_crc32
-from hifisuperstar.io.Strings import str_hash_sha256
+from hifisuperstar.io.Strings import str_hash_sha256, str_rand_crc32
 
 
 class Playlist:
-
     def __init__(self, guild_id, name="Default"):
         self.guild_id = str(guild_id)
         self.name = name
@@ -21,7 +19,7 @@ class Playlist:
         self.current_index = 0
 
     def get_playlist_storage_path(self):
-        playlist_storage_path = os.path.join('storage', 'playlists')
+        playlist_storage_path = os.path.join("storage", "playlists")
         if not os.path.exists(playlist_storage_path):
             os.mkdir(playlist_storage_path)
 
@@ -32,12 +30,14 @@ class Playlist:
         return guild_playlist_storage_path
 
     def get_playlist_path(self):
-        return os.path.join(self.get_playlist_storage_path(), f"{str_hash_sha256(self.name)}.json")
+        return os.path.join(
+            self.get_playlist_storage_path(), f"{str_hash_sha256(self.name)}.json"
+        )
 
     def get_available_playlists(self):
-        list_path = os.path.join(self.get_playlist_storage_path(), 'list.json')
+        list_path = os.path.join(self.get_playlist_storage_path(), "list.json")
         if os.path.exists(list_path):
-            with open(list_path, encoding='utf-8') as f:
+            with open(list_path, encoding="utf-8") as f:
                 return json.loads(f.read())
 
         return []
@@ -48,33 +48,43 @@ class Playlist:
         if not os.path.exists(playlist_path):
             return False
 
-        with open(playlist_path, encoding='utf-8') as f:
+        with open(playlist_path, encoding="utf-8") as f:
             playlist = json.loads(f.read())
         if not playlist:
             return False
 
-        if 'name' not in playlist or 'guild_id' not in playlist or 'tracks' not in playlist:
+        if (
+            "name" not in playlist
+            or "guild_id" not in playlist
+            or "tracks" not in playlist
+        ):
             return False
 
-        self.name = playlist['name']
-        self.guild_id = playlist['guild_id']
-        self.tracks = playlist['tracks']
+        self.name = playlist["name"]
+        self.guild_id = playlist["guild_id"]
+        self.tracks = playlist["tracks"]
 
         return True
 
     def save(self, cache=False, overwrite=False):
         playlist_path = self.get_playlist_path()
         if os.path.exists(playlist_path) and not overwrite:
-            error(self, f"Failed saving the playlist to {playlist_path} because path already exists!")
+            error(
+                self,
+                f"Failed saving the playlist to {playlist_path} because path already exists!",
+            )
             return False
 
         try:
-            with open(playlist_path, 'w') as outfile:
-                json.dump({
-                    'name': self.name,
-                    'guild_id': self.guild_id,
-                    'tracks': self.tracks
-                }, outfile)
+            with open(playlist_path, "w") as outfile:
+                json.dump(
+                    {
+                        "name": self.name,
+                        "guild_id": self.guild_id,
+                        "tracks": self.tracks,
+                    },
+                    outfile,
+                )
         except:
             error(self, f"Failed saving the playlist to {playlist_path}")
             return False
@@ -90,9 +100,9 @@ class Playlist:
         return True
 
     def save_available_playlists(self, available_playlists):
-        list_path = os.path.join(self.get_playlist_storage_path(), 'list.json')
+        list_path = os.path.join(self.get_playlist_storage_path(), "list.json")
         try:
-            with open(list_path, 'w') as outfile:
+            with open(list_path, "w") as outfile:
                 json.dump(available_playlists, outfile)
         except:
             error(self, f"Failed saving available playlists to {list_path}")
@@ -102,7 +112,10 @@ class Playlist:
 
     def delete(self):
         if not self.load_from_storage():
-            error(self, f"Failed deleting playlist {self.name} because it could not be loaded from storage")
+            error(
+                self,
+                f"Failed deleting playlist {self.name} because it could not be loaded from storage",
+            )
             return False
 
         os.remove(self.get_playlist_path())
@@ -123,17 +136,15 @@ class Playlist:
 
     def add_track(self, title, url):
         tid = str_rand_crc32()
-        self.tracks.append({
-            'id': tid,
-            'title': title,
-            'url': url
-        })
+        self.tracks.append({"id": tid, "title": title, "url": url})
 
         return True
 
     def remove_track(self, tid):
         try:
-            index = self.tracks.index(next(item for item in self.tracks if item['id'] == tid))
+            index = self.tracks.index(
+                next(item for item in self.tracks if item["id"] == tid)
+            )
             self.tracks.pop(index)
         except:
             return False
@@ -147,7 +158,11 @@ class Playlist:
         return self.tracks
 
     def get_current_track(self):
-        if len(self.tracks) == 0 or self.current_index < 0 or self.current_index >= len(self.tracks):
+        if (
+            len(self.tracks) == 0
+            or self.current_index < 0
+            or self.current_index >= len(self.tracks)
+        ):
             return None
 
         return self.tracks[self.current_index]

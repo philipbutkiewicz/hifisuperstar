@@ -1,9 +1,10 @@
-# 
+#
 # Hifi Superstar Discord Bot
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
-class UnbufferedOutput(object):
+
+class UnbufferedOutput:
     def __init__(self, stream):
         self.stream = stream
 

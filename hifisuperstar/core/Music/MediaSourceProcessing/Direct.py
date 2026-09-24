@@ -1,24 +1,26 @@
-# 
+#
 # Hifi Superstar Discord Bot
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
-import requests
 from urllib.parse import urlparse
-from hifisuperstar.io.Logger import info
-from hifisuperstar.io.Logger import warn
 
+import requests
 
-_ALLOWED_SCHEMES = {'http', 'https'}
+from hifisuperstar.io.Logger import info, warn
+
+_ALLOWED_SCHEMES = {"http", "https"}
 _REQUEST_TIMEOUT = 10  # seconds
+
+
+class MediaValidationError(Exception):
+    pass
 
 
 def media_get_direct(url, allowed_mime_types=None):
     info(None, f"Media: Extracting media link info for URL '{url}'...")
 
-    track_info = {
-        'is_youtube': False
-    }
+    track_info = {"is_youtube": False}
 
     media_check_url(url, allowed_mime_types)
 
@@ -30,10 +32,10 @@ def media_check_url(url, allowed_mime_types=None):
 
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_SCHEMES:
-        raise Exception(f"URL scheme '{parsed.scheme}' is not allowed")
+        raise MediaValidationError(f"URL scheme '{parsed.scheme}' is not allowed")
 
     res = requests.get(url, timeout=_REQUEST_TIMEOUT, allow_redirects=False)
-    content_type = res.headers.get('Content-Type', '')
+    content_type = res.headers.get("Content-Type", "")
     if allowed_mime_types and content_type not in allowed_mime_types:
         warn(None, f"Media: Invalid content type '{content_type}' for URL '{url}'!")
-        raise Exception(f"MIME type {content_type} is not allowed")
+        raise MediaValidationError(f"MIME type {content_type} is not allowed")
