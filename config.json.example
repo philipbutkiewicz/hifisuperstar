@@ -33,7 +33,17 @@
         ],
         "Display_Num_Top_Tracks": 10,
         "Display_Queue_Items": 20,
-        "Radio_URL": "https://example.com/radio.ogg"
+        "Radio_URL": "https://example.com/radio.ogg",
+        "S3": {
+            "Enabled": false,
+            "Endpoint_Url": "https://<region>.your-objectstorage.com",
+            "Region": "eu-central",
+            "Bucket": "",
+            "Access_Key_Id": "",
+            "Secret_Access_Key": "",
+            "Public_Url_Base": "",
+            "Presigned_Url_Expiry_Seconds": 3600
+        }
     },
     "SpotifyCog": {
         "Client_ID": "",

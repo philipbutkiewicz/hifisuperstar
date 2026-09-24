@@ -44,17 +44,48 @@ def media_get_youtube_query(query):
         return track_info, url, get_best_audio_url(yt_info)
 
 def media_get_youtube_playlist(url):
-    try:
-        ydl_opts = get_ydl_opts()
-        ydl_opts['noplaylist'] = False
-        ydl_opts['download'] = False
-        ydl_opts['ignoreerrors'] = True
+    # A single extract_info call can silently stop following continuation pages partway through very
+    # large playlists (no error, just fewer entries), so fetch it in explicit playliststart/playlistend
+    # ranges instead, forcing a separate request per page until a short/empty page signals the end.
+    page_size = 100
+    start = 1
+    entries = []
 
-        with YoutubeDL(ydl_opts) as ydl:
-            yt_info = ydl.extract_info(url, False)
-            return yt_info['entries']
-    except:
+    try:
+        while True:
+            ydl_opts = {
+                'quiet': True,
+                'ignoreerrors': 'only_download',
+                'extract_flat': 'in_playlist',
+                'noplaylist': False,
+                'playliststart': start,
+                'playlistend': start + page_size - 1,
+                'extractor_retries': 10,
+                'socket_timeout': 30
+            }
+
+            with YoutubeDL(ydl_opts) as ydl:
+                yt_info = ydl.extract_info(url, download=False)
+
+            page_entries = (yt_info or {}).get('entries') or []
+            entries.extend(page_entries)
+
+            if len(page_entries) < page_size:
+                break
+
+            start += page_size
+
+        return entries
+    except Exception as e:
+        error(None, f"YouTube: Failed to fetch playlist '{url}' - {str(e)}")
         return None
+
+
+def media_search_youtube(query, limit=25):
+    info(None, f"YouTube: Searching for '{query}' (limit {limit})...")
+    with YoutubeDL({'quiet': True, 'extract_flat': 'in_playlist', 'noplaylist': True}) as ydl:
+        yt_info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
+        return [entry for entry in (yt_info or {}).get('entries') or [] if entry]
 
 
 def download_youtube_media(url):

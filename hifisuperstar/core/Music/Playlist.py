@@ -62,9 +62,9 @@ class Playlist:
 
         return True
 
-    def save(self, cache=False):
+    def save(self, cache=False, overwrite=False):
         playlist_path = self.get_playlist_path()
-        if os.path.exists(playlist_path):
+        if os.path.exists(playlist_path) and not overwrite:
             error(self, f"Failed saving the playlist to {playlist_path} because path already exists!")
             return False
 

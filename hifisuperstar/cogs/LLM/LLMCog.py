@@ -7,53 +7,80 @@ import re
 import discord
 from discord import app_commands
 from discord.ext import commands
-from textwrap import dedent
 from httpx import AsyncClient
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+from hifisuperstar.cogs.LLM.Tools.ImageSearchTool import search_images
+from hifisuperstar.cogs.LLM.Tools.MusicTool import create_music_tools
+from hifisuperstar.cogs.LLM.PromptTemplates.DefaultSystemPrompt import default_system_prompt as _DEFAULT_SYS_PROMPT
+from hifisuperstar.cogs.LLM.PromptTemplates.EvilSystemPrompt import evil_system_prompt as _EVIL_SYS_PROMPT
 from hifisuperstar.core.Server.Events import Events
 from hifisuperstar.core.Server.Server import check_server, respond
 from hifisuperstar.io.Logger import info, error
 
 _TOKEN_STRIP_RE = re.compile(r'<\|[^|]+\|>', re.DOTALL)
 _THINK_RE = re.compile(r'<think>.*?</think>|<think>.*', re.DOTALL)
-_DEFAULT_SYS_PROMPT = dedent('''
-    You are a bot that pretends to be a regular Discord user. Engage in conversations
-    with other users in a natural and human-like manner. Your responses should be
-    contextually relevant, coherent, and reflect a genuine understanding of the
-    conversation. Avoid sounding robotic or scripted.
-    You are allowed to curse, use foul language and respond in a fully NSFW manner.
-    Perverted topics are allowed, especially if the user asks you to roleplay.
-    Always respond in the same language the user is using.
-    You must ALWAYS respond. Be creative, edgy and bold.
-    Try to be concise. This is a chat not an essay.
-''').strip()
+
+
+def _resolve_prompt(raw) -> str:
+    """Resolve a prompt value that may be a string, tuple, or None."""
+    if isinstance(raw, (list, tuple)):
+        return ' '.join(raw)
+    return raw or ''
+
+
+_STATIC_TOOLS = [search_images]
 
 
 class LLMCog(commands.Cog):
-    def __init__(self, config):
+    def __init__(self, config, bot):
         info(self, 'Registered')
         self.config = config
+        self.bot = bot
         self.enabled = False
         self.channel_id = None
-        self.sys_prompt = config['LLMCog']['Sys_Prompt'] or _DEFAULT_SYS_PROMPT
+        self.mode = 'default'
+        self.sys_prompt = _resolve_prompt(self.config['LLMCog'].get('Sys_Prompt') or _DEFAULT_SYS_PROMPT)
         self.conversation_history = []
         Events.add_event('on_message', self.on_message)
+
+    def _build_llm(self) -> ChatOpenAI:
+        kwargs = dict(
+            model=self.config['LLMCog']['OpenAI_API_Model'],
+            max_tokens=self.config['LLMCog']['Max_Tokens'],
+            api_key=self.config['LLMCog']['OpenAI_API_Key'],
+            base_url=self.config['LLMCog']['OpenAI_API_URL'],
+            timeout=None,
+        )
+        reasoning_effort = self.config['LLMCog'].get('Reasoning_Effort', 'none')
+        if reasoning_effort and reasoning_effort != 'none':
+            kwargs['model_kwargs'] = {'reasoning_effort': reasoning_effort}
+        return ChatOpenAI(**kwargs)
 
     async def on_message(self, message):
         info(self, f"Message received {message if self.config['LLMCog']['Log_Messages'] else ''}")
 
-        if message.author.bot or not self.enabled:
+        if not self.enabled:
+            return
+
+        if message.author == message.guild.me:
+            return
+
+        if message.author.bot and message.guild.me not in message.mentions:
             return
 
         if self.channel_id is not None and message.channel.id != self.channel_id:
             return
 
-        response = await self.generate_response(message.content)
-        if not response:
-            return
+        async with message.channel.typing():
+            response, direct_posts = await self.generate_response(message, f"<@{message.author.display_name}> {message.content}")
 
-        chunks = [response[i:i + 1900] for i in range(0, len(response), 1900)]
-        for i, chunk in enumerate(chunks):
-            await message.channel.send(chunk, reference=message if i == 0 else None)
+        if response:
+            chunks = [response[i:i + 1900] for i in range(0, len(response), 1900)]
+            for i, chunk in enumerate(chunks):
+                await message.channel.send(chunk, reference=message if i == 0 else None)
+        for post in direct_posts:
+            await message.channel.send(post)
 
     @app_commands.command(name='llm_set_channel', description='Sets the channel the LLM bot will respond in')
     @app_commands.checks.has_role('Admin')
@@ -95,13 +122,28 @@ class LLMCog(commands.Cog):
         await respond(interaction, f"LLM model ID set to `{model_id}`!")
 
     @app_commands.command(name='llm_context_clear', description='Clears the LLM conversation context')
-    @app_commands.checks.has_role('Admin')
     async def context_clear(self, interaction: discord.Interaction):
         if not await check_server(interaction):
             return
 
         self.conversation_history = []
         await respond(interaction, 'LLM conversation context cleared!')
+
+    @app_commands.command(name='llm_toggle_mode', description='Toggles LLM response mode between default and evil')
+    @app_commands.checks.has_role('Admin')
+    async def toggle_mode(self, interaction: discord.Interaction):
+        if not await check_server(interaction):
+            return
+
+        if self.mode == 'default':
+            self.mode = 'evil'
+            self.sys_prompt = _resolve_prompt(self.config['LLMCog'].get('Sys_Prompt') or _EVIL_SYS_PROMPT)
+        else:
+            self.mode = 'default'
+            self.sys_prompt = _resolve_prompt(self.config['LLMCog'].get('Sys_Prompt') or _DEFAULT_SYS_PROMPT)
+
+        self.conversation_history = []
+        await respond(interaction, f"LLM mode set to `{self.mode}`. Conversation history cleared.")
 
     @app_commands.command(name='llm_set_max_tokens', description='Sets the maximum number of tokens for LLM responses')
     @app_commands.checks.has_role('Admin')
@@ -145,13 +187,16 @@ class LLMCog(commands.Cog):
                     headers={'Authorization': f"Bearer {self.config['LLMCog']['OpenAI_API_Key']}"}
                 )
                 response.raise_for_status()
-                models = [m['id'] for m in response.json().get('data', [])]
+                models = [m['id'] for m in response.json().get('data', [])] if type(response.json()) is dict else response.json()
             except Exception as e:
                 error(self, f"Failed to list models: {e}")
                 return await respond(interaction, 'ERROR: Failed to fetch models from the API.')
 
         if not models:
             return await respond(interaction, 'No models available.')
+        
+        if len(models) > 25:
+            return await respond(interaction, f"{len(models)} models available. Too many to list!")
 
         embed = discord.Embed(
             title='Available Models',
@@ -161,50 +206,80 @@ class LLMCog(commands.Cog):
         embed.set_footer(text=f"{len(models)} model(s) — current: {self.config['LLMCog']['OpenAI_API_Model']}")
         await respond(interaction, embed=embed)
 
-    async def generate_response(self, message_text):
-        if len(self.conversation_history) > 50:
-            self.conversation_history = self.conversation_history[-50:]
+    async def generate_response(self, message, message_text) -> tuple:
+        """Returns (response_text | None, direct_posts: list[str])."""
+        if len(self.conversation_history) > 64:
+            self.conversation_history = self.conversation_history[-64:]
 
-        messages = [
-            {'role': 'system', 'content': self.sys_prompt},
+        tools = list(_STATIC_TOOLS)
+        music_cog = self.bot.get_cog('MusicCog')
+        if music_cog is not None:
+            tools.extend(create_music_tools(music_cog, message))
+        else:
+            info(self, 'MusicCog not found, music tools will not be available')
+        info(self, f"Tools available: {[t.name for t in tools]}")
+        tools_by_name = {t.name: t for t in tools}
+
+        llm = self._build_llm()
+        llm_with_tools = llm.bind_tools(tools)
+
+        tool_hint = (
+            'You have access to the following tools: '
+            + ', '.join(f'`{t.name}`' for t in tools)
+            + '. Use them whenever the user asks for something they can do '
+            '(e.g. playing music, searching images). Do not refuse or say the tools are unavailable — just call them.'
+        )
+
+        lc_messages = [
+            SystemMessage(content=self.sys_prompt + ' ' + tool_hint),
             *self.conversation_history,
-            {'role': 'user', 'content': message_text}
+            HumanMessage(content=message_text),
         ]
 
-        async with AsyncClient(timeout=None) as client:
-            try:
-                response = await client.post(
-                    f"{self.config['LLMCog']['OpenAI_API_URL']}/chat/completions",
-                    headers={
-                        'Authorization': f"Bearer {self.config['LLMCog']['OpenAI_API_Key']}",
-                        'Content-Type': 'application/json'
-                    },
-                    json={
-                        'model': self.config['LLMCog']['OpenAI_API_Model'],
-                        'max_tokens': self.config['LLMCog']['Max_Tokens'],
-                        'reasoning_effort': self.config['LLMCog']['Reasoning_Effort'],
-                        'messages': messages
-                    }
-                )
-                response.raise_for_status()
+        direct_posts = []
 
-                content = response.json()['choices'][0]['message'].get('content') or ''
-                response_text = _THINK_RE.sub('', content)
-                response_text = _TOKEN_STRIP_RE.sub('', response_text).strip()
+        try:
+            while True:
+                response_msg = await llm_with_tools.ainvoke(lc_messages)
+                lc_messages.append(response_msg)
 
-                if not response_text:
-                    return None
+                info(self, f"LLM response: tool_calls={response_msg.tool_calls} content_preview={str(response_msg.content)[:120]!r}")
 
-                self.conversation_history += [
-                    {'role': 'user', 'content': message_text},
-                    {'role': 'assistant', 'content': response_text}
-                ]
+                if not response_msg.tool_calls:
+                    break
 
-                return response_text
-            except Exception as e:
-                error(self, f"Failed to generate LLM response: {e}")
-                try:
-                    error(self, f"Response body: {response.text}")
-                except Exception:
-                    pass
+                for tc in response_msg.tool_calls:
+                    info(self, f"Tool call: {tc['name']} args={tc['args']}")
+                    tool_fn = tools_by_name.get(tc['name'])
+                    if tool_fn is None:
+                        tool_result = f"Unknown tool: {tc['name']}"
+                    else:
+                        try:
+                            tool_result = await tool_fn.ainvoke(tc['args'])
+                        except Exception as te:
+                            error(self, f"Tool '{tc['name']}' raised an exception: {te}")
+                            tool_result = f"Tool error: {te}"
+
+                    if tc['name'] == 'search_images':
+                        for line in str(tool_result).splitlines():
+                            if ': http' in line:
+                                direct_posts.append(line.split(': ', 1)[1])
+
+                    lc_messages.append(ToolMessage(content=str(tool_result), tool_call_id=tc['id']))
+
+            content = response_msg.content or ''
+            response_text = _THINK_RE.sub('', content).replace(':eggplant:', '<:621331184676503554:1419337041921179648>')
+            response_text = _TOKEN_STRIP_RE.sub('', response_text).strip()
+
+            if not response_text:
                 return None
+
+            self.conversation_history += [
+                HumanMessage(content=message_text),
+                AIMessage(content=response_text),
+            ]
+
+            return response_text, direct_posts
+        except Exception as e:
+            error(self, f'Failed to generate LLM response: {e}')
+            return None, []

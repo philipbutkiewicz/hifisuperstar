@@ -13,7 +13,7 @@ from hifisuperstar.io.Logger import error
 from hifisuperstar.core.Acl.Acl import Acl
 from hifisuperstar.core.Acl import Rule
 from hifisuperstar.core.Server.Server import check_server, respond
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 
 class ImageSearchCog(commands.Cog):

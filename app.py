@@ -101,7 +101,7 @@ if 'SelectableRoles' in config['Bot']['Enabled_Cogs']:
     client.stage_cog(SelectableRolesCog(config))
 
 if 'LLM' in config['Bot']['Enabled_Cogs']:
-    client.stage_cog(LLMCog(config))
+    client.stage_cog(LLMCog(config, client))
 
 # Run the client
 client.run(config['Bot']['Token'])

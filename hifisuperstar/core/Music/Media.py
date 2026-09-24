@@ -11,6 +11,7 @@ from hifisuperstar.core.Music.MediaSourceProcessing.YouTube import media_get_you
 from hifisuperstar.io.Logger import info
 from hifisuperstar.io.Logger import error
 from urllib.parse import urlparse
+from urllib.parse import parse_qs
 
 
 # TODO: M3U playlists
@@ -25,7 +26,14 @@ def media_get_playlist(url):
     if not domain == 'youtube.com' and not domain == 'youtu.be':
         error(None, 'Media: Invalid domain!')
         return False
-    
+
+    # URLs with both 'v' (a specific video) and 'list' make YouTube/yt-dlp start listing from that
+    # video's position instead of the beginning, truncating the results, so normalize to the plain
+    # playlist URL to always fetch the full list from the start.
+    list_id = parse_qs(urlparse(url).query).get('list', [None])[0]
+    if list_id:
+        url = f"https://www.youtube.com/playlist?list={list_id}"
+
     return media_get_youtube_playlist(url)
 
 

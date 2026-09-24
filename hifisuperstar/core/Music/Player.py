@@ -60,7 +60,6 @@ class Player:
 
                 if self.playlist.get_current_track_index() == -1:
                     if not self.options['repeat_all']:
-                        import asyncio
                         asyncio.run_coroutine_threadsafe(self.stop_track(), self.interaction.client.loop)
                     else:
                         self.playlist.jump_to(0)

@@ -4,6 +4,7 @@
 #
 
 import logging
+import sys
 
 
 def log_init():
@@ -12,8 +13,8 @@ def log_init():
         format='(%(asctime)s) [%(name)s:%(levelname)s] %(message)s',
         datefmt='%m/%d/%Y %I:%M:%S %p',
         handlers=[
-            logging.FileHandler('app.log'),
-            logging.StreamHandler()
+            logging.FileHandler('app.log', encoding='utf-8'),
+            logging.StreamHandler(stream=open(sys.stdout.fileno(), mode='w', encoding='utf-8', closefd=False))
         ]
     )
 

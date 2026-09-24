@@ -4,15 +4,18 @@ version = "1.0.0"
 requires-python = ">=3.11"
 dependencies = [
     "discord.py==2.7.1",
-    "duckduckgo-search==8.1.1",
     "Flask==3.1.3",
     "requests==2.33.1",
     "spotipy==2.26.0",
     "validators==0.35.0",
-    "yt-dlp==2026.3.17",
+    "yt-dlp==2026.8.19",
     "GitPython==3.1.46",
     "numpy==2.4.4",
     "pynacl>=1.6.2",
     "davey>=0.1.5",
     "httpx>=0.28.1",
+    "langchain>=1.2.15",
+    "langchain-openai>=1.1.13",
+    "ddgs>=9.13.1",
+    "boto3>=1.34.149",
 ]
