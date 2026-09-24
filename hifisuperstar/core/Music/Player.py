@@ -45,15 +45,6 @@ class Player:
             self.prev = False
             return False
 
-        if self.playlist.is_over():
-            info(self, 'Playlist is over', self.interaction.guild)
-            self.prev = False
-            asyncio.run_coroutine_threadsafe(
-                self.interaction.client.change_presence(activity=None),
-                self.interaction.client.loop
-            )
-            return False
-
         if not self.options['repeat'] and self.jump_to_index == -1:
             if not self.prev:
                 self.playlist.skip_track()
@@ -61,6 +52,7 @@ class Player:
                 if self.playlist.get_current_track_index() == -1:
                     if not self.options['repeat_all']:
                         asyncio.run_coroutine_threadsafe(self.stop_track(), self.interaction.client.loop)
+                        return False
                     else:
                         self.playlist.jump_to(0)
             else:
@@ -134,7 +126,7 @@ class Player:
             except:
                 return False
 
-            self.playlist.add_track(track_info['info']['title'], query)
+            self.playlist.add_track(track_info['info']['title'], url)
         else:
             if len(self.playlist.get_tracks()) == 0:
                 return False

@@ -147,7 +147,7 @@ class Playlist:
         return self.tracks
 
     def get_current_track(self):
-        if len(self.tracks) == 0:
+        if len(self.tracks) == 0 or self.current_index < 0 or self.current_index >= len(self.tracks):
             return None
 
         return self.tracks[self.current_index]
@@ -177,7 +177,7 @@ class Playlist:
         if self.current_index > 0:
             self.current_index -= 1
         else:
-            self.current_index = len(self.tracks)
+            self.current_index = len(self.tracks) - 1
 
         return self.get_current_track()
 
