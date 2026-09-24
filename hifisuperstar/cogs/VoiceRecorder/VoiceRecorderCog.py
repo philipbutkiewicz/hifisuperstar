@@ -1,6 +1,6 @@
 #
 # Hifi Superstar Discord Bot
-# Copyright (c) 2021 - 2023 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
+# Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 # NOTE: Voice recording (discord.sinks) is a py-cord-only feature and is not available in discord.py.
 # These commands are stubbed out with an informational error message.

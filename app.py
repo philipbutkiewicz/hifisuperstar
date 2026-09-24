@@ -1,12 +1,10 @@
 # 
 # Hifi Superstar Discord Bot
-# Copyright (c) 2021 - 2023 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
+# Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
-import discord
 import json
 import sys
-import asyncio
 
 from hifisuperstar.Bot import Bot
 from hifisuperstar.cogs.Regex.RegexCog import RegexCog
@@ -19,7 +17,6 @@ from hifisuperstar.cogs.Spotify.SpotifyCog import SpotifyCog
 from hifisuperstar.cogs.AntiLoudmouth.AntiLoudmouthCog import AntiLoudmouthCog
 from hifisuperstar.cogs.Jokes.JokesCog import JokesCog
 from hifisuperstar.cogs.RandomPictures.RandomPicturesCog import RandomPicturesCog
-from hifisuperstar.cogs.Kenja.KenjaCog import KenjaCog
 from hifisuperstar.cogs.Acl.AclCog import AclCog
 from hifisuperstar.cogs.ImageSearch.ImageSearchCog import ImageSearchCog
 from hifisuperstar.cogs.VoiceRecorder.VoiceRecorderCog import VoiceRecorderCog
@@ -78,9 +75,6 @@ if 'Jokes' in config['Bot']['Enabled_Cogs']:
 
 if 'RandomPictures' in config['Bot']['Enabled_Cogs']:
     client.stage_cog(RandomPicturesCog(config))
-
-if 'Kenja' in config['Bot']['Enabled_Cogs']:
-    client.stage_cog(KenjaCog(config))
 
 if 'Acl' in config['Bot']['Enabled_Cogs']:
     client.stage_cog(AclCog(config))
