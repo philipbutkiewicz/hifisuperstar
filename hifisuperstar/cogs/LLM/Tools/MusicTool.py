@@ -84,6 +84,22 @@ def create_music_tools(music_cog, message):
             lines.append(f"{prefix}{t['title']}")
         return "\n".join(lines)
 
+    def music_remove_track(index: int) -> str:
+        """Remove a track from the queue by its 1-based index (see music_get_queue). Cannot remove the currently playing track."""
+        if guild_id not in music_cog.players:
+            return "Nothing is in the queue."
+        player = music_cog.players[guild_id]
+        playlist = player.get_playlist()
+        tracks = playlist.get_tracks()
+        if index < 1 or index > len(tracks):
+            return f"Failed: index must be between 1 and {len(tracks)}."
+        if index - 1 == playlist.get_current_track_index():
+            return "Failed: cannot remove the currently playing track, skip it first."
+        track = playlist.remove_track_at_index(index - 1)
+        if not track:
+            return "Failed to remove that track."
+        return f"Removed '{track['title']}' from the queue."
+
     return [
         StructuredTool.from_function(
             coroutine=music_play,
@@ -109,5 +125,10 @@ def create_music_tools(music_cog, message):
             func=music_get_queue,
             name="music_get_queue",
             description="Get the current music queue as a numbered list.",
+        ),
+        StructuredTool.from_function(
+            func=music_remove_track,
+            name="music_remove_track",
+            description="Remove a track from the queue by its 1-based index. Cannot remove the currently playing track.",
         ),
     ]

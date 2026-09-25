@@ -1336,6 +1336,55 @@ class MusicCog(commands.Cog):
         await respond(interaction, "Done!")
 
     @app_commands.command(
+        name="queue_remove", description="Removes a track from the playback queue by its index"
+    )
+    async def queue_remove(self, interaction: discord.Interaction, index: str):
+        info(self, "Remove queue item request")
+
+        if not await check_server(interaction):
+            error(self, "Server verification failed")
+            return False
+
+        if not await Acl(interaction.guild.id).check_and_fail(
+            Rule.MUSIC_QUEUE_REMOVE, interaction
+        ):
+            return False
+
+        player = await self.get_player(interaction)
+        if not player:
+            error(self, "Failed to get the player", interaction.guild)
+            return await respond(
+                interaction, "ERROR: Failed to get the player for this Discord server"
+            )
+
+        playlist = player.get_playlist()
+        tracks = playlist.get_tracks()
+
+        index = int(index)
+        if index < 1 or index > len(tracks):
+            warn(self, "Invalid input", interaction.guild)
+            return await respond(
+                interaction,
+                f"ERROR: Invalid format, provide a value between 1 and {len(tracks)}",
+            )
+
+        info(self, f"Removing playlist index {index}", interaction.guild)
+
+        if index - 1 == playlist.get_current_track_index():
+            warn(self, "Cannot remove the currently playing track", interaction.guild)
+            return await respond(
+                interaction,
+                "ERROR: Cannot remove the currently playing track, skip it first.",
+            )
+
+        track = playlist.remove_track_at_index(index - 1)
+        if not track:
+            error(self, "Failed to remove track", interaction.guild)
+            return await respond(interaction, "ERROR: Failed to remove that track")
+
+        await respond(interaction, f"Removed '{track['title']}' from the queue!")
+
+    @app_commands.command(
         name="prev", description="Goes back to the previous item in the playback queue"
     )
     async def prev(self, interaction: discord.Interaction):

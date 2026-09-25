@@ -138,6 +138,11 @@ class Playlist:
         tid = str_rand_crc32()
         self.tracks.append({"id": tid, "title": title, "url": url})
 
+        # If playback had naturally run off the end of the list (current_index == -1), queuing a
+        # new track needs to become the new "current" one, otherwise nothing will play until /stop.
+        if self.current_index == -1:
+            self.current_index = len(self.tracks) - 1
+
         return True
 
     def remove_track(self, tid):
@@ -150,6 +155,20 @@ class Playlist:
             return False
 
         return True
+
+    def remove_track_at_index(self, index):
+        if index < 0 or index >= len(self.tracks):
+            return None
+
+        track = self.tracks.pop(index)
+
+        # Keep current_index pointing at the same actual track after the list shifts
+        if index < self.current_index:
+            self.current_index -= 1
+        elif index == self.current_index and self.current_index >= len(self.tracks):
+            self.current_index = len(self.tracks) - 1 if self.tracks else -1
+
+        return track
 
     def is_over(self):
         return self.current_index == (len(self.tracks) - 1)
