@@ -16,8 +16,6 @@ This is a personal hobby project. It is only maintained sporadically (occasional
 - **Random pictures** - random cat/pug pictures from a local image folder.
 - **Regex auto-responses** - per-server regex-triggered chat responses.
 - **Selectable roles** - reaction-based self-assignable roles.
-- **Anti-loudmouth** - monitors voice channel audio levels and can act on people who are too loud.
-- **Voice recorder** - records voice channel audio.
 - **User join messages** - sends a configurable message when someone joins the server.
 - **ACL system** - per-server, per-user rule overrides for who can use what.
 - **Optional web UI** - a small Flask app for browsing saved playlists.
@@ -95,9 +93,6 @@ Commands are grouped roughly by cog. Admin-only commands are noted.
 
 **Selectable roles** (admin-only)
 `/add_selectable_role`, `/remove_selectable_role`, `/selectable_roles`
-
-**Voice / moderation** (admin-only)
-`/start_recording`, `/stop_recording`, `/start_monitoring`, `/stop_monitoring`
 
 **User join**
 `/set_userjoin_channel`, `/disable_userjoin`
