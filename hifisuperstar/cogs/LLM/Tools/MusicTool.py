@@ -8,6 +8,7 @@ import asyncio
 from langchain_core.tools import StructuredTool
 
 from hifisuperstar.core.Music.Player import Player
+from hifisuperstar.core.Music.Playlist import Playlist
 
 
 class _MessageAdapter:
@@ -100,6 +101,24 @@ def create_music_tools(music_cog, message):
             return "Failed to remove that track."
         return f"Removed '{track['title']}' from the queue."
 
+    def music_list_playlists() -> str:
+        """List the names of playlists saved for this server (separate from the current live queue)."""
+        names = Playlist(message.guild.id).get_available_playlists()
+        if not names:
+            return "No saved playlists."
+        return "\n".join(f"{i + 1}. {name}" for i, name in enumerate(names))
+
+    def music_view_playlist(name: str) -> str:
+        """View the tracks in a saved playlist by name (see music_list_playlists). Does not play it."""
+        playlist = Playlist(message.guild.id, name)
+        if not playlist.load_from_storage():
+            return f"Failed: playlist '{name}' not found."
+        tracks = playlist.get_tracks()
+        if not tracks:
+            return f"Playlist '{playlist.get_name()}' is empty."
+        lines = [f"{i + 1}. {t['title']}" for i, t in enumerate(tracks)]
+        return f"Playlist '{playlist.get_name()}' ({len(tracks)} track(s)):\n" + "\n".join(lines)
+
     return [
         StructuredTool.from_function(
             coroutine=music_play,
@@ -130,5 +149,15 @@ def create_music_tools(music_cog, message):
             func=music_remove_track,
             name="music_remove_track",
             description="Remove a track from the queue by its 1-based index. Cannot remove the currently playing track.",
+        ),
+        StructuredTool.from_function(
+            func=music_list_playlists,
+            name="music_list_playlists",
+            description="List the names of playlists saved for this server.",
+        ),
+        StructuredTool.from_function(
+            func=music_view_playlist,
+            name="music_view_playlist",
+            description="View the tracks in a saved playlist by name, without playing it.",
         ),
     ]
