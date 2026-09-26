@@ -8,7 +8,6 @@ import sys
 
 from hifisuperstar.Bot import Bot
 from hifisuperstar.cogs.Acl.AclCog import AclCog
-from hifisuperstar.cogs.AntiLoudmouth.AntiLoudmouthCog import AntiLoudmouthCog
 from hifisuperstar.cogs.ImageSearch.ImageSearchCog import ImageSearchCog
 from hifisuperstar.cogs.Jokes.JokesCog import JokesCog
 from hifisuperstar.cogs.LLM.LLMCog import LLMCog
@@ -18,7 +17,6 @@ from hifisuperstar.cogs.Regex.RegexCog import RegexCog
 from hifisuperstar.cogs.SelectableRoles.SelectableRolesCog import SelectableRolesCog
 from hifisuperstar.cogs.Spotify.SpotifyCog import SpotifyCog
 from hifisuperstar.cogs.UserJoin.UserJoinCog import UserJoinCog
-from hifisuperstar.cogs.VoiceRecorder.VoiceRecorderCog import VoiceRecorderCog
 from hifisuperstar.core.Server.Events import Events
 from hifisuperstar.io.Logger import log_init
 from hifisuperstar.io.UnbufferedOutput import UnbufferedOutput
@@ -73,9 +71,6 @@ if "Music" in config["Bot"]["Enabled_Cogs"]:
 if "Spotify" in config["Bot"]["Enabled_Cogs"]:
     client.stage_cog(SpotifyCog(config))
 
-if "AntiLoudmouth" in config["Bot"]["Enabled_Cogs"]:
-    client.stage_cog(AntiLoudmouthCog(config, client))
-
 if "Jokes" in config["Bot"]["Enabled_Cogs"]:
     client.stage_cog(JokesCog(config))
 
@@ -87,9 +82,6 @@ if "Acl" in config["Bot"]["Enabled_Cogs"]:
 
 if "ImageSearch" in config["Bot"]["Enabled_Cogs"]:
     client.stage_cog(ImageSearchCog(config))
-
-if "VoiceRecorder" in config["Bot"]["Enabled_Cogs"]:
-    client.stage_cog(VoiceRecorderCog(config))
 
 if "Regex" in config["Bot"]["Enabled_Cogs"]:
     client.stage_cog(RegexCog(config))
