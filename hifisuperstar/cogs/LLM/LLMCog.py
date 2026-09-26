@@ -20,6 +20,7 @@ from hifisuperstar.cogs.LLM.PromptTemplates.EvilSystemPrompt import (
 )
 from hifisuperstar.cogs.LLM.Tools.ImageSearchTool import search_images
 from hifisuperstar.cogs.LLM.Tools.MusicTool import create_music_tools
+from hifisuperstar.cogs.LLM.Tools.WebSearchTool import web_fetch, web_search
 from hifisuperstar.core.Server.Events import Events
 from hifisuperstar.core.Server.Server import check_server, respond
 from hifisuperstar.io.Logger import error, info
@@ -35,7 +36,7 @@ def _resolve_prompt(raw) -> str:
     return raw or ""
 
 
-_STATIC_TOOLS = [search_images]
+_STATIC_TOOLS = [search_images, web_search, web_fetch]
 
 
 class LLMCog(commands.Cog):
@@ -58,6 +59,9 @@ class LLMCog(commands.Cog):
             "model": self.config["LLMCog"]["OpenAI_API_Model"],
             "max_tokens": self.config["LLMCog"]["Max_Tokens"],
             "reasoning_effort": self.config["LLMCog"].get("Reasoning_Effort", "none"),
+            "max_web_search_calls": int(
+                self.config["LLMCog"].get("Max_Web_Search_Calls", 5)
+            ),
         }
 
     def _get_state(self, guild_id) -> dict:
@@ -106,14 +110,34 @@ class LLMCog(commands.Cog):
             return
 
         async with message.channel.typing():
+            placeholder = await message.channel.send("🤔 Thinking...", reference=message)
+
+            async def report_progress(text):
+                try:
+                    await placeholder.edit(content=text)
+                except discord.HTTPException:
+                    pass
+
             response, direct_posts = await self.generate_response(
-                state, message, f"<@{message.author.display_name}> {message.content}"
+                state,
+                message,
+                f"<@{message.author.display_name}> {message.content}",
+                progress_callback=report_progress,
             )
 
         if response:
             chunks = [response[i : i + 1900] for i in range(0, len(response), 1900)]
-            for i, chunk in enumerate(chunks):
-                await message.channel.send(chunk, reference=message if i == 0 else None)
+            try:
+                await placeholder.edit(content=chunks[0])
+            except discord.HTTPException:
+                await message.channel.send(chunks[0])
+            for chunk in chunks[1:]:
+                await message.channel.send(chunk)
+        else:
+            try:
+                await placeholder.delete()
+            except discord.HTTPException:
+                pass
         for post in direct_posts:
             await message.channel.send(post)
 
@@ -248,6 +272,25 @@ class LLMCog(commands.Cog):
         await respond(interaction, f"LLM reasoning effort set to `{effort.value}`!")
 
     @app_commands.command(
+        name="llm_set_max_web_search_calls",
+        description="Sets the max number of web search/fetch tool calls allowed per message",
+    )
+    @app_commands.checks.has_role("Admin")
+    async def set_max_web_search_calls(
+        self, interaction: discord.Interaction, max_calls: int
+    ):
+        if not await check_server(interaction):
+            return
+
+        if max_calls < 0 or max_calls > 25:
+            return await respond(
+                interaction, "ERROR: max_calls must be between 0 and 25."
+            )
+
+        self._get_state(interaction.guild.id)["max_web_search_calls"] = max_calls
+        await respond(interaction, f"LLM max web search calls set to `{max_calls}`!")
+
+    @app_commands.command(
         name="llm_list_models", description="Lists models available on the LLM API"
     )
     @app_commands.checks.has_role("Admin")
@@ -293,8 +336,19 @@ class LLMCog(commands.Cog):
         )
         await respond(interaction, embed=embed)
 
-    async def generate_response(self, state, message, message_text) -> tuple:
+    async def generate_response(
+        self, state, message, message_text, progress_callback=None
+    ) -> tuple:
         """Returns (response_text | None, direct_posts: list[str])."""
+
+        async def report_progress(text):
+            if progress_callback is None:
+                return
+            try:
+                await progress_callback(text)
+            except Exception as exc:
+                error(self, f"Progress callback failed: {exc}")
+
         if len(state["conversation_history"]) > 64:
             state["conversation_history"] = state["conversation_history"][-64:]
 
@@ -324,6 +378,10 @@ class LLMCog(commands.Cog):
         ]
 
         direct_posts = []
+        web_sources = []
+        web_tool_names = {"web_search", "web_fetch"}
+        max_web_calls = state["max_web_search_calls"]
+        web_call_count = 0
 
         try:
             while True:
@@ -340,6 +398,25 @@ class LLMCog(commands.Cog):
 
                 for tc in response_msg.tool_calls:
                     info(self, f"Tool call: {tc['name']} args={tc['args']}")
+
+                    if tc["name"] in web_tool_names:
+                        web_call_count += 1
+                        if web_call_count > max_web_calls:
+                            warn_msg = (
+                                f"Web search limit reached ({max_web_calls} calls per "
+                                "message); answer using what you already know."
+                            )
+                            lc_messages.append(
+                                ToolMessage(content=warn_msg, tool_call_id=tc["id"])
+                            )
+                            continue
+
+                        await report_progress(
+                            f"🌐 Searching the web ({web_call_count}/{max_web_calls})..."
+                        )
+                    else:
+                        await report_progress(f"🔧 Using `{tc['name']}`...")
+
                     tool_fn = tools_by_name.get(tc["name"])
                     if tool_fn is None:
                         tool_result = f"Unknown tool: {tc['name']}"
@@ -357,10 +434,18 @@ class LLMCog(commands.Cog):
                             if ": http" in line:
                                 direct_posts.append(line.split(": ", 1)[1])
 
+                    if tc["name"] == "web_fetch" and not str(tool_result).startswith(
+                        "Failed to fetch"
+                    ):
+                        fetched_url = tc["args"].get("url")
+                        if fetched_url and fetched_url not in web_sources:
+                            web_sources.append(fetched_url)
+
                     lc_messages.append(
                         ToolMessage(content=str(tool_result), tool_call_id=tc["id"])
                     )
 
+            await report_progress("✍️ Writing a reply...")
             content = response_msg.content or ""
             response_text = _THINK_RE.sub("", content).replace(
                 ":eggplant:", "<:621331184676503554:1419337041921179648>"
@@ -369,6 +454,12 @@ class LLMCog(commands.Cog):
 
             if not response_text:
                 return None, []
+
+            if web_sources:
+                sources_line = "-# Sources: " + " • ".join(
+                    f"[{i}]({url})" for i, url in enumerate(web_sources[:5], start=1)
+                )
+                response_text = f"{response_text}\n{sources_line}"
 
             state["conversation_history"] += [
                 HumanMessage(content=message_text),

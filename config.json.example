@@ -84,6 +84,7 @@
         "OpenAI_API_Model": "",
         "Max_Tokens": 1024,
         "Sys_Prompt": null,
-        "Reasoning_Effort": "low"
+        "Reasoning_Effort": "low",
+        "Max_Web_Search_Calls": 5
     }
 }

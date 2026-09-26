@@ -372,7 +372,7 @@ class QueuePageView(discord.ui.View):
         self.per_page = per_page
         playlist = player.get_playlist()
         self.max_page = max(0, (len(playlist.get_tracks()) - 1) // per_page)
-        self.page = min(self.max_page, playlist.get_current_track_index() // per_page)
+        self.page = min(self.max_page, max(0, playlist.get_current_track_index()) // per_page)
         self.message = None
         self._build_select()
         self._update_button_state()
