@@ -10,6 +10,7 @@ import validators
 from spotipy.oauth2 import SpotifyClientCredentials
 
 from hifisuperstar.core.Music.Playlist import Playlist
+from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error
 
 
@@ -31,7 +32,7 @@ class Client:
             return None
 
         try:
-            spotify = self.get_spotify_client()
+            spotify = self.get_spotify_client(interaction.guild.id)
 
             spotify_playlist = spotify.playlist(playlist_id)
             if not spotify_playlist:
@@ -94,18 +95,15 @@ class Client:
 
         return birdy_uri_split if len(birdy_uri_split) == 3 else None
 
-    def get_spotify_client(self):
-        if (
-            not "SpotifyCog" in self.config
-            or not "Client_ID" in self.config["SpotifyCog"]
-            or not "Client_Secret" in self.config["SpotifyCog"]
-        ):
+    def get_spotify_client(self, guild_id):
+        settings = get_guild_config(self.config, "SpotifyCog", guild_id)
+        if not settings.get("Client_ID") or not settings.get("Client_Secret"):
             error(self, "Spotify: Missing Spotify client ID/secret!")
             return None
 
         return spotipy.Spotify(
             client_credentials_manager=SpotifyClientCredentials(
-                self.config["SpotifyCog"]["Client_ID"],
-                self.config["SpotifyCog"]["Client_Secret"],
+                settings["Client_ID"],
+                settings["Client_Secret"],
             )
         )

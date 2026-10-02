@@ -13,6 +13,7 @@ from discord.ext import commands
 from hifisuperstar.core.Acl import Rule
 from hifisuperstar.core.Acl.Acl import Acl
 from hifisuperstar.core.Server.Server import check_server, respond
+from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error, info, warn
 
 
@@ -21,11 +22,11 @@ class ImageSearchCog(commands.Cog):
         info(self, "Registered")
         self.config = config
 
-    def find_image(self, query):
+    def find_image(self, query, guild_id):
         return DDGS().images(
             query,
             region="wt-wt",
-            safesearch=self.config["ImageSearchCog"]["Safe_Search"],
+            safesearch=get_guild_config(self.config, "ImageSearchCog", guild_id)["Safe_Search"],
             timelimit=None,
             size=None,
             color=None,
@@ -47,10 +48,11 @@ class ImageSearchCog(commands.Cog):
             return False
 
         info(self, "Displaying search configuration", interaction.guild)
+        settings = get_guild_config(self.config, "ImageSearchCog", interaction.guild.id)
         await respond(
             interaction,
-            f"**Current image search configuration**\nMax items: {self.config['ImageSearchCog']['Max_Results']}\nSafe "
-            f"search: {self.config['ImageSearchCog']['Safe_Search']}",
+            f"**Current image search configuration**\nMax items: {settings['Max_Results']}\nSafe "
+            f"search: {settings['Safe_Search']}",
         )
 
     @app_commands.command(name="image_search", description="Conducts an image search")
@@ -86,20 +88,18 @@ class ImageSearchCog(commands.Cog):
             warn(self, "Invalid input", interaction.guild)
             return await respond(interaction, "ERROR: item_index must be an integer.")
 
-        if (
-            max_items > int(self.config["ImageSearchCog"]["Max_Results"])
-            or max_items <= 0
-        ):
+        settings = get_guild_config(self.config, "ImageSearchCog", interaction.guild.id)
+        if max_items > int(settings["Max_Results"]) or max_items <= 0:
             warn(self, "Invalid input", interaction.guild)
             return await respond(
                 interaction,
                 f"ERROR: Invalid request, you can display up "
-                f"to {self.config['ImageSearchCog']['Max_Results']} at once.",
+                f"to {settings['Max_Results']} at once.",
             )
 
         await respond(interaction, "Hold on, looking that up...")
 
-        images = self.find_image(query)
+        images = self.find_image(query, interaction.guild.id)
 
         if len(images) == 0:
             return await respond(interaction, "No results found.")
@@ -140,7 +140,7 @@ class ImageSearchCog(commands.Cog):
 
         await respond(interaction, "Hold on, looking that up...")
 
-        images = self.find_image(query)
+        images = self.find_image(query, interaction.guild.id)
 
         if len(images) == 0:
             return await respond(interaction, "No results found.")

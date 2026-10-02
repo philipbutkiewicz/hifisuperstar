@@ -15,6 +15,7 @@
             "LLM"
         ]
     },
+    "Guilds": {},
     "Web": {
         "Enabled": false,
         "Base_Url": "http://example.com"

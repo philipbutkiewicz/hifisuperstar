@@ -12,6 +12,7 @@ import validators
 from hifisuperstar.core.Music.Media import media_get_playlist, media_get_source
 from hifisuperstar.core.Music.PlayCounter import PlayCounter
 from hifisuperstar.core.Music.Playlist import Playlist
+from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error, info
 from hifisuperstar.io.Strings import str_hash_crc32
 
@@ -20,6 +21,7 @@ class Player:
     def __init__(self, interaction, config):
         self.interaction = interaction
         self.config = config
+        self.music_config = get_guild_config(config, "MusicCog", interaction.guild.id)
         self.options = {"volume": 0.02, "repeat": False, "repeat_all": False}
 
         self.play_counter = PlayCounter(self.interaction.guild.id)
@@ -93,7 +95,7 @@ class Player:
                 )
                 (_track_info, _url, playback_url) = media_get_source(
                     track["url"],
-                    allowed_mime_types=self.config["MusicCog"]["Allowed_Mime_Types"],
+                    allowed_mime_types=self.music_config["Allowed_Mime_Types"],
                 )
             except Exception as e:
                 error(
@@ -158,7 +160,7 @@ class Player:
                 )
                 (track_info, url, _playback_url) = media_get_source(
                     query,
-                    allowed_mime_types=self.config["MusicCog"]["Allowed_Mime_Types"],
+                    allowed_mime_types=self.music_config["Allowed_Mime_Types"],
                 )
             except:
                 return False
@@ -177,7 +179,7 @@ class Player:
         voice = self.interaction.guild.voice_client
 
         if not voice.is_playing():
-            self.play_track(self.config["MusicCog"]["Radio_URL"])
+            self.play_track(self.music_config["Radio_URL"])
 
         return True
 

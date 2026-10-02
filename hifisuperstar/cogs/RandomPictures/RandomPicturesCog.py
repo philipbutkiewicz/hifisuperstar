@@ -14,6 +14,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from hifisuperstar.core.Server.Server import check_server, respond
+from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error, info
 
 
@@ -27,12 +28,13 @@ class RandomPicturesCog(commands.Cog):
         self.config = config
         self.pictures = self.load_pictures()
 
-    def load_pictures(self):
+    def load_pictures(self, settings=None):
         if not os.path.exists("res/pictures"):
             raise PictureDatabaseError("Failed to find the picture database.")
 
-        picture_types = self.config["RandomPicturesCog"]["Enabled_Picture_Types"]
-        allowed_file_types = self.config["RandomPicturesCog"]["Allowed_File_Types"]
+        settings = settings or self.config["RandomPicturesCog"]
+        picture_types = settings["Enabled_Picture_Types"]
+        allowed_file_types = settings["Allowed_File_Types"]
 
         pictures = {}
         for picture_type in picture_types:
@@ -59,14 +61,16 @@ class RandomPicturesCog(commands.Cog):
 
         info(self, f"Picture request of the '{picture_type}' type", interaction.guild)
 
-        if picture_type not in self.pictures or len(self.pictures[picture_type]) == 0:
+        settings = get_guild_config(self.config, "RandomPicturesCog", interaction.guild.id)
+        pictures = self.load_pictures(settings)
+        if picture_type not in pictures or len(pictures[picture_type]) == 0:
             return await respond(
                 interaction,
                 f"Sorry, there are no {picture_type} pictures available. :(",
             )
 
         def read_picture_file():
-            with open(random.choice(self.pictures[picture_type]), "rb") as f:
+            with open(random.choice(pictures[picture_type]), "rb") as f:
                 return f.read(), os.path.basename(f.name)
 
         data, filename = await asyncio.to_thread(read_picture_file)

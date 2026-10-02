@@ -21,9 +21,9 @@ class UserJoinCog(commands.Cog):
         Events.add_event("on_member_join", self.on_member_join)
 
     async def on_member_join(self, member):
-        userjoin = load_resource("userjoin", member.guild)
+        userjoin = load_resource("userjoin", member.guild.id)
 
-        info(self, f"User {member} has joined the server", member.guild.id)
+        info(self, f"User {member} has joined the server", member.guild)
         if "enabled" not in userjoin:
             warn(
                 self,
@@ -44,11 +44,13 @@ class UserJoinCog(commands.Cog):
             )
             return False
 
-        channel = discord.utils.get(member.guild.text_channels, name=userjoin["name"])
+        channel = discord.utils.get(
+            member.guild.text_channels, name=userjoin["channel"]
+        )
         if not channel:
             error(
                 self,
-                f"Event error: Could not find the configured channel {userjoin['name']}",
+                f"Event error: Could not find the configured channel {userjoin['channel']}",
             )
             return False
 

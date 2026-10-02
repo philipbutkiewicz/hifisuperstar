@@ -10,6 +10,7 @@ from discord.ext import commands
 
 from hifisuperstar.core.Server.Events import Events
 from hifisuperstar.core.Server.Server import check_server, respond
+from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error, info
 from hifisuperstar.io.Resources import load_resource, save_resource
 from hifisuperstar.io.Strings import str_rand_crc32
@@ -32,13 +33,13 @@ class RegexCog(commands.Cog):
         Events.add_event("on_message", self.on_message)
 
     async def on_message(self, message):
-        info(
-            self,
-            f"Message received {message if self.config['RegexCog']['Log_Messages'] else ''}",
-        )
-
         if message.guild is None or message.author.bot:
             return
+
+        info(
+            self,
+            f"Message received {message if get_guild_config(self.config, 'RegexCog', message.guild.id)['Log_Messages'] else ''}",
+        )
 
         responses = self.get_responses(message.guild.id)
         for key in responses:

@@ -18,12 +18,14 @@ from hifisuperstar.cogs.LLM.PromptTemplates.DefaultSystemPrompt import (
 from hifisuperstar.cogs.LLM.PromptTemplates.EvilSystemPrompt import (
     evil_system_prompt as _EVIL_SYS_PROMPT,
 )
-from hifisuperstar.cogs.LLM.Tools.ImageSearchTool import search_images
+from hifisuperstar.cogs.LLM.Tools.ImageSearchTool import create_image_search_tool
 from hifisuperstar.cogs.LLM.Tools.MusicTool import create_music_tools
 from hifisuperstar.cogs.LLM.Tools.WebSearchTool import web_fetch, web_search
 from hifisuperstar.core.Server.Events import Events
 from hifisuperstar.core.Server.Server import check_server, respond
+from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error, info
+from hifisuperstar.io.Resources import load_resource, save_resource
 
 _TOKEN_STRIP_RE = re.compile(r"<\|[^|]+\|>", re.DOTALL)
 _THINK_RE = re.compile(r"<think>.*?</think>|<think>.*", re.DOTALL)
@@ -36,7 +38,7 @@ def _resolve_prompt(raw) -> str:
     return raw or ""
 
 
-_STATIC_TOOLS = [search_images, web_search, web_fetch]
+_STATIC_TOOLS = [web_search, web_fetch]
 
 
 class LLMCog(commands.Cog):
@@ -47,35 +49,56 @@ class LLMCog(commands.Cog):
         self.guild_states = {}
         Events.add_event("on_message", self.on_message)
 
-    def _default_state(self) -> dict:
+    def _default_state(self, guild_id) -> dict:
+        settings = get_guild_config(self.config, "LLMCog", guild_id)
         return {
             "enabled": False,
             "channel_id": None,
             "mode": "default",
             "sys_prompt": _resolve_prompt(
-                self.config["LLMCog"].get("Sys_Prompt") or _DEFAULT_SYS_PROMPT
+                settings.get("Sys_Prompt") or _DEFAULT_SYS_PROMPT
             ),
             "conversation_history": [],
-            "model": self.config["LLMCog"]["OpenAI_API_Model"],
-            "max_tokens": self.config["LLMCog"]["Max_Tokens"],
-            "reasoning_effort": self.config["LLMCog"].get("Reasoning_Effort", "none"),
-            "max_web_search_calls": int(
-                self.config["LLMCog"].get("Max_Web_Search_Calls", 5)
-            ),
+            "model": settings["OpenAI_API_Model"],
+            "max_tokens": settings["Max_Tokens"],
+            "reasoning_effort": settings.get("Reasoning_Effort", "none"),
+            "max_web_search_calls": int(settings.get("Max_Web_Search_Calls", 5)),
         }
 
     def _get_state(self, guild_id) -> dict:
         if guild_id not in self.guild_states:
-            self.guild_states[guild_id] = self._default_state()
+            state = self._default_state(guild_id)
+            saved = load_resource("llm", guild_id)
+            state.update(
+                {
+                    key: value
+                    for key, value in saved.items()
+                    if key in state and key != "conversation_history"
+                }
+            )
+            self.guild_states[guild_id] = state
 
         return self.guild_states[guild_id]
 
-    def _build_llm(self, state) -> ChatOpenAI:
+    def _save_state(self, guild_id):
+        state = self._get_state(guild_id)
+        save_resource(
+            "llm",
+            guild_id,
+            {
+                key: value
+                for key, value in state.items()
+                if key != "conversation_history"
+            },
+        )
+
+    def _build_llm(self, state, guild_id) -> ChatOpenAI:
+        settings = get_guild_config(self.config, "LLMCog", guild_id)
         kwargs = {
             "model": state["model"],
             "max_tokens": state["max_tokens"],
-            "api_key": self.config["LLMCog"]["OpenAI_API_Key"],
-            "base_url": self.config["LLMCog"]["OpenAI_API_URL"],
+            "api_key": settings["OpenAI_API_Key"],
+            "base_url": settings["OpenAI_API_URL"],
             "timeout": None,
         }
         reasoning_effort = state["reasoning_effort"]
@@ -84,13 +107,13 @@ class LLMCog(commands.Cog):
         return ChatOpenAI(**kwargs)
 
     async def on_message(self, message):
-        info(
-            self,
-            f"Message received {message if self.config['LLMCog']['Log_Messages'] else ''}",
-        )
-
         if message.guild is None:
             return
+
+        info(
+            self,
+            f"Message received {message if get_guild_config(self.config, 'LLMCog', message.guild.id)['Log_Messages'] else ''}",
+        )
 
         state = self._get_state(message.guild.id)
 
@@ -153,6 +176,7 @@ class LLMCog(commands.Cog):
             return
 
         self._get_state(interaction.guild.id)["channel_id"] = channel.id
+        self._save_state(interaction.guild.id)
         await respond(interaction, f"LLM will now only respond in {channel.mention}!")
 
     @app_commands.command(
@@ -165,6 +189,7 @@ class LLMCog(commands.Cog):
             return
 
         self._get_state(interaction.guild.id)["channel_id"] = None
+        self._save_state(interaction.guild.id)
         await respond(interaction, "LLM channel restriction removed.")
 
     @app_commands.command(
@@ -180,6 +205,7 @@ class LLMCog(commands.Cog):
         if not state["enabled"]:
             state["conversation_history"] = []
 
+        self._save_state(interaction.guild.id)
         await respond(
             interaction,
             f"LLM responses {'enabled' if state['enabled'] else 'disabled'}!",
@@ -192,6 +218,7 @@ class LLMCog(commands.Cog):
             return
 
         self._get_state(interaction.guild.id)["model"] = model_id
+        self._save_state(interaction.guild.id)
         await respond(interaction, f"LLM model ID set to `{model_id}`!")
 
     @app_commands.command(
@@ -214,18 +241,20 @@ class LLMCog(commands.Cog):
             return
 
         state = self._get_state(interaction.guild.id)
+        settings = get_guild_config(self.config, "LLMCog", interaction.guild.id)
         if state["mode"] == "default":
             state["mode"] = "evil"
             state["sys_prompt"] = _resolve_prompt(
-                self.config["LLMCog"].get("Sys_Prompt") or _EVIL_SYS_PROMPT
+                settings.get("Sys_Prompt") or _EVIL_SYS_PROMPT
             )
         else:
             state["mode"] = "default"
             state["sys_prompt"] = _resolve_prompt(
-                self.config["LLMCog"].get("Sys_Prompt") or _DEFAULT_SYS_PROMPT
+                settings.get("Sys_Prompt") or _DEFAULT_SYS_PROMPT
             )
 
         state["conversation_history"] = []
+        self._save_state(interaction.guild.id)
         await respond(
             interaction,
             f"LLM mode set to `{state['mode']}`. Conversation history cleared.",
@@ -246,6 +275,7 @@ class LLMCog(commands.Cog):
             )
 
         self._get_state(interaction.guild.id)["max_tokens"] = max_tokens
+        self._save_state(interaction.guild.id)
         await respond(interaction, f"LLM max tokens set to `{max_tokens}`!")
 
     @app_commands.command(
@@ -269,6 +299,7 @@ class LLMCog(commands.Cog):
             return
 
         self._get_state(interaction.guild.id)["reasoning_effort"] = effort.value
+        self._save_state(interaction.guild.id)
         await respond(interaction, f"LLM reasoning effort set to `{effort.value}`!")
 
     @app_commands.command(
@@ -288,6 +319,7 @@ class LLMCog(commands.Cog):
             )
 
         self._get_state(interaction.guild.id)["max_web_search_calls"] = max_calls
+        self._save_state(interaction.guild.id)
         await respond(interaction, f"LLM max web search calls set to `{max_calls}`!")
 
     @app_commands.command(
@@ -298,12 +330,13 @@ class LLMCog(commands.Cog):
         if not await check_server(interaction):
             return
 
+        settings = get_guild_config(self.config, "LLMCog", interaction.guild.id)
         async with AsyncClient(timeout=10) as client:
             try:
                 response = await client.get(
-                    f"{self.config['LLMCog']['OpenAI_API_URL']}/models",
+                    f"{settings['OpenAI_API_URL']}/models",
                     headers={
-                        "Authorization": f"Bearer {self.config['LLMCog']['OpenAI_API_Key']}"
+                        "Authorization": f"Bearer {settings['OpenAI_API_Key']}"
                     },
                 )
                 response.raise_for_status()
@@ -353,6 +386,8 @@ class LLMCog(commands.Cog):
             state["conversation_history"] = state["conversation_history"][-64:]
 
         tools = list(_STATIC_TOOLS)
+        image_settings = get_guild_config(self.config, "ImageSearchCog", message.guild.id)
+        tools.append(create_image_search_tool(image_settings.get("Safe_Search", "Moderate")))
         music_cog = self.bot.get_cog("MusicCog")
         if music_cog is not None:
             tools.extend(create_music_tools(music_cog, message))
@@ -361,7 +396,7 @@ class LLMCog(commands.Cog):
         info(self, f"Tools available: {[t.name for t in tools]}")
         tools_by_name = {t.name: t for t in tools}
 
-        llm = self._build_llm(state)
+        llm = self._build_llm(state, message.guild.id)
         llm_with_tools = llm.bind_tools(tools)
 
         tool_hint = (

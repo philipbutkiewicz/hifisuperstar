@@ -28,6 +28,7 @@ from hifisuperstar.core.Music.MediaSourceProcessing.YouTube import (
 from hifisuperstar.core.Music.Player import Player
 from hifisuperstar.core.Music.Playlist import Playlist
 from hifisuperstar.core.Server.Server import check_server, join_voice, respond
+from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error, info, warn
 from hifisuperstar.io.Strings import allowed_chars_regex, str_hash_sha256
 
@@ -873,10 +874,11 @@ class MusicCog(commands.Cog):
             color=discord.Color.blurple(),
         )
 
-        if self.config["Web"]["Enabled"]:
+        web_config = get_guild_config(self.config, "Web", interaction.guild.id)
+        if web_config["Enabled"]:
             embed.add_field(
                 name="Web",
-                value=f"[Browse playlists]({self.config['Web']['Base_Url']}/playlists/{interaction.guild.id!s})",
+                value=f"[Browse playlists]({web_config['Base_Url']}/playlists/{interaction.guild.id!s})",
                 inline=False,
             )
 
@@ -1028,7 +1030,7 @@ class MusicCog(commands.Cog):
                 "ERROR: A playlist download is already in progress for this server, please wait for it to finish.",
             )
 
-        s3_config = self.config.get("MusicCog", {}).get("S3", {})
+        s3_config = get_guild_config(self.config, "MusicCog", interaction.guild.id).get("S3", {})
         if not s3_config.get("Enabled"):
             error(self, "S3 upload is not configured", interaction.guild)
             return await respond(
@@ -1132,7 +1134,7 @@ class MusicCog(commands.Cog):
         ):
             return False
 
-        s3_config = self.config.get("MusicCog", {}).get("S3", {})
+        s3_config = get_guild_config(self.config, "MusicCog", interaction.guild.id).get("S3", {})
         if not s3_config.get("Enabled"):
             error(self, "S3 upload is not configured", interaction.guild)
             return await respond(
@@ -1439,7 +1441,7 @@ class MusicCog(commands.Cog):
         if len(player.get_playlist().get_tracks()) == 0:
             return await respond(interaction, "ERROR: There is nothing in the queue")
 
-        display_queue_items = int(self.config["MusicCog"]["Display_Queue_Items"])
+        display_queue_items = int(get_guild_config(self.config, "MusicCog", interaction.guild.id)["Display_Queue_Items"])
         per_page = (
             min(display_queue_items, 25)
             if display_queue_items >= 10
@@ -1475,7 +1477,7 @@ class MusicCog(commands.Cog):
                 interaction, "ERROR: Failed to get the player for this Discord server"
             )
 
-        display_num_top_tracks = int(self.config["MusicCog"]["Display_Num_Top_Tracks"])
+        display_num_top_tracks = int(get_guild_config(self.config, "MusicCog", interaction.guild.id)["Display_Num_Top_Tracks"])
         if display_num_top_tracks == 0:
             warn(self, "Top tracks misconfigured", interaction.guild)
             return await respond(interaction, "ERROR: Top tracks misconfigured")

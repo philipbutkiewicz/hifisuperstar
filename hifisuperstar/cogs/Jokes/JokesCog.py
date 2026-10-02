@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from hifisuperstar.core.Server.Server import check_server, respond
+from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error, info
 from hifisuperstar.io.Resources import load_resource
 
@@ -36,7 +37,7 @@ class JokesCog(commands.Cog):
         info(self, f"Joke request of the '{joke_type}' type", interaction.guild)
 
         if (
-            joke_type not in self.config["JokesCog"]["Allowed_Joke_Types"]
+            joke_type not in get_guild_config(self.config, "JokesCog", interaction.guild.id)["Allowed_Joke_Types"]
             or joke_type not in self.jokes
             or len(self.jokes[joke_type]) == 0
         ):

@@ -64,7 +64,21 @@ Slash commands are synced automatically on startup, so they should show up in Di
 - `RandomPicturesCog` - which picture categories and file types are enabled.
 - `RegexCog` - whether matched messages get logged.
 - `ImageSearchCog` - max results and safe-search level.
-- `LLMCog` - OpenAI-compatible API URL/key/model, token limit, default system prompt, and reasoning effort. Model, token limit, reasoning effort, enabled state, and channel restriction can also be overridden per-server at runtime via the `/llm_*` commands.
+- `LLMCog` - OpenAI-compatible API URL/key/model, token limit, default system prompt, and reasoning effort. Model, token limit, reasoning effort, mode, web search limit, enabled state, and channel restriction can be overridden per server via the `/llm_*` commands. These settings are saved in `storage/llm.<guild_id>.json` and restored after restart; conversation history is not saved.
+
+Server-facing values in the sections above are defaults. Put overrides in `Guilds` using the Discord server ID as a string; nested sections such as `MusicCog.S3` inherit unspecified defaults:
+
+```json
+"Guilds": {
+   "123456789012345678": {
+      "ImageSearchCog": {"Safe_Search": "Strict"},
+      "MusicCog": {"Radio_URL": "https://example.com/other-radio.ogg"},
+      "LLMCog": {"OpenAI_API_Model": "other-model"}
+   }
+}
+```
+
+This also applies to Spotify and LLM API credentials if servers use different accounts. `Bot.Token` and `Bot.Enabled_Cogs` remain process-wide. `Web.Enabled` starts no server by itself; a per-guild `Web` override only changes the playlist link displayed by the bot. Slash-command changes to LLM settings take precedence over defaults and `Guilds` overrides until changed again.
 
 ## Commands
 

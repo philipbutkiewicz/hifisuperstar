@@ -37,14 +37,11 @@ class SelectableRolesCog(commands.Cog):
         save_resource("messageids", guild_id, self.message_ids[guild_id])
 
     def load_selected_list(self, guild_id, list_name):
-        if not list_name in self.selectable_roles[guild_id]:
-            self.selectable_roles[guild_id][
-                "default" if list_name is None else list_name
-            ] = {}
+        name = "default" if list_name is None else list_name
+        if name not in self.selectable_roles[guild_id]:
+            self.selectable_roles[guild_id][name] = {}
 
-        return self.selectable_roles[guild_id][
-            "default" if list_name is None else list_name
-        ]
+        return self.selectable_roles[guild_id][name]
 
     async def on_reaction_add(self, reaction, member):
         message = reaction.message
@@ -63,18 +60,25 @@ class SelectableRolesCog(commands.Cog):
 
         self.load_message_ids(message.guild.id)
 
-        if not message.id in self.message_ids[message.guild.id]:
+        message_id = str(message.id)
+        if message_id not in self.message_ids[message.guild.id]:
             warn(self, f"Message ID {message.id} is not valid for reactions")
             return False
 
+        self.load_selectable_roles(message.guild.id)
         selected_list = self.load_selected_list(
-            message.guild.id, self.message_ids[message.guild.id][message.id]
+            message.guild.id, self.message_ids[message.guild.id][message_id]
         )
         role = None
         for selectable_role in selected_list:
-            if selectable_role["emoji"] == reaction.emoji.name:
+            if selected_list[selectable_role]["emoji"] == getattr(
+                reaction.emoji, "name", reaction.emoji
+            ):
                 role = selectable_role
                 break
+
+        if role is None:
+            return False
 
         info(self, f"Role selected as '{role}' for {member}", message.guild)
 
@@ -180,7 +184,7 @@ class SelectableRolesCog(commands.Cog):
             await msg.add_reaction(selected_list[selectable_role]["emoji"])
 
         self.load_message_ids(interaction.guild.id)
-        self.message_ids[interaction.guild.id][msg.id] = (
+        self.message_ids[interaction.guild.id][str(msg.id)] = (
             "default" if list_name is None else list_name
         )
         self.save_message_ids(interaction.guild.id)
