@@ -41,6 +41,81 @@ def _resolve_prompt(raw) -> str:
 _STATIC_TOOLS = [web_search, web_fetch]
 
 
+class ModelsPageView(discord.ui.View):
+    def __init__(self, models, current_model, per_page=20, timeout=120):
+        super().__init__(timeout=timeout)
+        self.models = models
+        self.current_model = current_model
+        self.per_page = per_page
+        self.page = 0
+        self.max_page = max(0, (len(models) - 1) // per_page)
+        self.message = None
+        self._update_button_state()
+
+    def _update_button_state(self):
+        self.first_page.disabled = self.page == 0
+        self.prev_page.disabled = self.page == 0
+        self.next_page.disabled = self.page >= self.max_page
+        self.last_page.disabled = self.page >= self.max_page
+
+    def build_embed(self):
+        start = self.page * self.per_page
+        models = self.models[start : start + self.per_page]
+        embed = discord.Embed(
+            title="Available Models",
+            description="\n".join(
+                f"`{start + index}.` `{model}`"
+                for index, model in enumerate(models, 1)
+            ),
+            color=discord.Color.blurple(),
+        )
+        embed.set_footer(
+            text=f"Page {self.page + 1}/{self.max_page + 1} — {len(self.models)} model(s) — current: {self.current_model}"
+        )
+        return embed
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
+    @discord.ui.button(label="⏮ First", style=discord.ButtonStyle.secondary)
+    async def first_page(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.page = 0
+        self._update_button_state()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.primary)
+    async def prev_page(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.page = max(0, self.page - 1)
+        self._update_button_state()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.primary)
+    async def next_page(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.page = min(self.max_page, self.page + 1)
+        self._update_button_state()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="Last ⏭", style=discord.ButtonStyle.secondary)
+    async def last_page(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.page = self.max_page
+        self._update_button_state()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+
 class LLMCog(commands.Cog):
     def __init__(self, config, bot):
         info(self, "Registered")
@@ -354,20 +429,9 @@ class LLMCog(commands.Cog):
         if not models:
             return await respond(interaction, "No models available.")
 
-        if len(models) > 25:
-            return await respond(
-                interaction, f"{len(models)} models available. Too many to list!"
-            )
-
-        embed = discord.Embed(
-            title="Available Models",
-            description="\n".join(f"`{m}`" for m in models),
-            color=discord.Color.blurple(),
-        )
-        embed.set_footer(
-            text=f"{len(models)} model(s) — current: {self._get_state(interaction.guild.id)['model']}"
-        )
-        await respond(interaction, embed=embed)
+        view = ModelsPageView(models, self._get_state(interaction.guild.id)["model"])
+        await respond(interaction, embed=view.build_embed(), view=view)
+        view.message = await interaction.original_response()
 
     async def generate_response(
         self, state, message, message_text, progress_callback=None

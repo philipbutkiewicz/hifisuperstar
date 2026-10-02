@@ -8,10 +8,10 @@ import os
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from hifisuperstar.cogs.Acl.AclCog import AclCog
-from hifisuperstar.cogs.LLM.LLMCog import LLMCog
+from hifisuperstar.cogs.LLM.LLMCog import LLMCog, ModelsPageView
 from hifisuperstar.cogs.SelectableRoles.SelectableRolesCog import SelectableRolesCog
 from hifisuperstar.cogs.UserJoin.UserJoinCog import UserJoinCog
 from hifisuperstar.io.Resources import load_resource, save_resource
@@ -109,6 +109,83 @@ class GuildSettingsTests(unittest.TestCase):
             cog._build_llm(state, 22)
             self.assertEqual(llm.call_args.kwargs["api_key"], "other")
             self.assertEqual(llm.call_args.kwargs["base_url"], "https://other")
+
+    def test_llm_list_models_pages_api_results(self):
+        cog = LLMCog.__new__(LLMCog)
+        cog.config = {
+            "LLMCog": {
+                "OpenAI_API_URL": "https://models.example",
+                "OpenAI_API_Key": "secret",
+                "OpenAI_API_Model": "selected",
+                "Max_Tokens": 100,
+            }
+        }
+        cog.guild_states = {}
+
+        for count in (0, 1, 20, 21, 41):
+            with self.subTest(count=count):
+                model_ids = [f"model-{index}" for index in range(1, count + 1)]
+                response = MagicMock()
+                response.json.return_value = {
+                    "data": [{"id": model} for model in model_ids]
+                }
+                client = AsyncMock()
+                client.__aenter__.return_value = client
+                client.get.return_value = response
+                message = SimpleNamespace(edit=AsyncMock())
+                request = SimpleNamespace(
+                    guild=SimpleNamespace(id=11),
+                    original_response=AsyncMock(return_value=message),
+                )
+                with (
+                    patch(
+                        "hifisuperstar.cogs.LLM.LLMCog.check_server",
+                        new=AsyncMock(return_value=True),
+                    ),
+                    patch(
+                        "hifisuperstar.cogs.LLM.LLMCog.respond", new=AsyncMock()
+                    ) as send,
+                    patch(
+                        "hifisuperstar.cogs.LLM.LLMCog.AsyncClient", return_value=client
+                    ),
+                ):
+                    asyncio.run(LLMCog.list_models.callback(cog, request))
+
+                client.get.assert_awaited_once_with(
+                    "https://models.example/models",
+                    headers={"Authorization": "Bearer secret"},
+                )
+                if not count:
+                    self.assertEqual(send.await_args.args[1], "No models available.")
+                    request.original_response.assert_not_awaited()
+                    continue
+
+                view = send.await_args.kwargs["view"]
+                self.assertIsInstance(view, ModelsPageView)
+                self.assertIs(view.message, message)
+                self.assertIn("model-1", send.await_args.kwargs["embed"].description)
+                self.assertIn("current: selected", view.build_embed().footer.text)
+                self.assertEqual(view.max_page, (count - 1) // 20)
+                self.assertEqual(view.next_page.disabled, count <= 20)
+
+                if count == 41:
+                    click = SimpleNamespace(
+                        response=SimpleNamespace(edit_message=AsyncMock())
+                    )
+                    asyncio.run(view.last_page.callback(click))
+                    self.assertEqual(view.page, 2)
+                    self.assertIn(
+                        "model-41",
+                        click.response.edit_message.await_args.kwargs[
+                            "embed"
+                        ].description,
+                    )
+                    self.assertTrue(view.next_page.disabled)
+                    asyncio.run(view.first_page.callback(click))
+                    self.assertEqual(view.page, 0)
+                    asyncio.run(view.on_timeout())
+                    self.assertTrue(all(button.disabled for button in view.children))
+                    message.edit.assert_awaited_once_with(view=view)
 
     def test_user_join_uses_its_guild_channel(self):
         save_resource("userjoin", 11, {"channel": "welcome", "enabled": True})
