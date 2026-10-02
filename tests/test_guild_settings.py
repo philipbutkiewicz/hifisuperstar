@@ -127,7 +127,7 @@ class GuildSettingsTests(unittest.TestCase):
                 model_ids = [f"model-{index}" for index in range(1, count + 1)]
                 response = MagicMock()
                 response.json.return_value = {
-                    "data": [{"id": model} for model in model_ids]
+                    "data": [{"id": model, "type": "chat"} for model in model_ids]
                 }
                 client = AsyncMock()
                 client.__aenter__.return_value = client
@@ -186,6 +186,69 @@ class GuildSettingsTests(unittest.TestCase):
                     asyncio.run(view.on_timeout())
                     self.assertTrue(all(button.disabled for button in view.children))
                     message.edit.assert_awaited_once_with(view=view)
+
+    def test_llm_list_models_filters_top_level_model_objects(self):
+        cog = LLMCog.__new__(LLMCog)
+        cog.config = {
+            "LLMCog": {
+                "OpenAI_API_URL": "https://models.example",
+                "OpenAI_API_Key": "secret",
+                "OpenAI_API_Model": "chat-one",
+                "Max_Tokens": 100,
+            }
+        }
+        cog.guild_states = {}
+        response = MagicMock()
+        response.json.return_value = [
+            {"id": "chat-one", "type": "chat", "pricing": {"input": 0.3}},
+            {"id": "image-one", "type": "image"},
+            {"id": "chat-two", "type": "chat", "display_name": "Chat Two"},
+            {"type": "chat"},
+        ]
+        client = AsyncMock()
+        client.__aenter__.return_value = client
+        client.get.return_value = response
+        request = SimpleNamespace(
+            guild=SimpleNamespace(id=11),
+            original_response=AsyncMock(return_value=SimpleNamespace(edit=AsyncMock())),
+        )
+        with (
+            patch(
+                "hifisuperstar.cogs.LLM.LLMCog.check_server",
+                new=AsyncMock(return_value=True),
+            ),
+            patch("hifisuperstar.cogs.LLM.LLMCog.respond", new=AsyncMock()) as send,
+            patch("hifisuperstar.cogs.LLM.LLMCog.AsyncClient", return_value=client),
+        ):
+            asyncio.run(LLMCog.list_models.callback(cog, request))
+
+        description = send.await_args.kwargs["embed"].description
+        self.assertIn("`chat-one`", description)
+        self.assertIn("`chat-two`", description)
+        self.assertNotIn("(chat)", description)
+        self.assertNotIn("image-one", description)
+        self.assertNotIn("pricing", description)
+
+    def test_llm_model_pages_fit_discord_embed_limit(self):
+        models = [f"model-{index}-{'x' * 250}" for index in range(45)]
+        view = ModelsPageView(models, "selected")
+        descriptions = []
+        for page in range(view.max_page + 1):
+            view.page = page
+            description = view.build_embed().description
+            self.assertLessEqual(len(description), 4096)
+            self.assertLessEqual(len(description.encode("utf-8")), 4000)
+            descriptions.append(description)
+        self.assertEqual(
+            sum(page.count("model-") for page in descriptions), len(models)
+        )
+
+        oversized = ModelsPageView(["x" * 5000], "selected")
+        self.assertLessEqual(len(oversized.build_embed().description), 4096)
+        unicode_model = ModelsPageView(["🧪" * 2000], "selected")
+        self.assertLessEqual(
+            len(unicode_model.build_embed().description.encode("utf-8")), 4000
+        )
 
     def test_user_join_uses_its_guild_channel(self):
         save_resource("userjoin", 11, {"channel": "welcome", "enabled": True})

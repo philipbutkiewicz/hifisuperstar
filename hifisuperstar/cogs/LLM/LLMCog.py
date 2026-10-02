@@ -47,8 +47,30 @@ class ModelsPageView(discord.ui.View):
         self.models = models
         self.current_model = current_model
         self.per_page = per_page
+        self.pages = []
+        lines = []
+        page_size = 0
+        for index, model in enumerate(models, 1):
+            prefix = f"`{index}.` `"
+            model_bytes = str(model).encode("utf-8")
+            max_model_bytes = 4000 - len(prefix.encode("utf-8")) - 1
+            if len(model_bytes) > max_model_bytes:
+                model_label = model_bytes[: max_model_bytes - 3].decode(
+                    "utf-8", errors="ignore"
+                ) + "..."
+            else:
+                model_label = str(model)
+            line = f"{prefix}{model_label}`"
+            line_size = len(line.encode("utf-8"))
+            if lines and (len(lines) >= per_page or page_size + 1 + line_size > 4000):
+                self.pages.append("\n".join(lines))
+                lines = []
+                page_size = 0
+            page_size += line_size + (1 if lines else 0)
+            lines.append(line)
+        self.pages.append("\n".join(lines))
         self.page = 0
-        self.max_page = max(0, (len(models) - 1) // per_page)
+        self.max_page = len(self.pages) - 1
         self.message = None
         self._update_button_state()
 
@@ -59,18 +81,16 @@ class ModelsPageView(discord.ui.View):
         self.last_page.disabled = self.page >= self.max_page
 
     def build_embed(self):
-        start = self.page * self.per_page
-        models = self.models[start : start + self.per_page]
         embed = discord.Embed(
             title="Available Models",
-            description="\n".join(
-                f"`{start + index}.` `{model}`"
-                for index, model in enumerate(models, 1)
-            ),
+            description=self.pages[self.page],
             color=discord.Color.blurple(),
         )
+        current_model = str(self.current_model)
+        if len(current_model) > 150:
+            current_model = current_model[:147] + "..."
         embed.set_footer(
-            text=f"Page {self.page + 1}/{self.max_page + 1} — {len(self.models)} model(s) — current: {self.current_model}"
+            text=f"Page {self.page + 1}/{self.max_page + 1} — {len(self.models)} model(s) — current: {current_model}"
         )
         return embed
 
@@ -415,11 +435,16 @@ class LLMCog(commands.Cog):
                     },
                 )
                 response.raise_for_status()
-                models = (
-                    [m["id"] for m in response.json().get("data", [])]
-                    if type(response.json()) is dict
-                    else response.json()
-                )
+                data = response.json()
+                entries = data.get("data", []) if isinstance(data, dict) else data
+                models = [
+                    model["id"]
+                    for model in entries
+                    if isinstance(model, dict)
+                    and model.get("type") == "chat"
+                    and isinstance(model.get("id"), str)
+                    and model["id"]
+                ]
             except Exception as e:
                 error(self, f"Failed to list models: {e}")
                 return await respond(
