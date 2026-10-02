@@ -1,0 +1,15 @@
+.git
+.venv
+.vscode
+.cache
+.ruff_cache
+__pycache__
+*.py[cod]
+*.log
+config.json
+.env
+.env.*
+storage
+cache
+normalized
+tests

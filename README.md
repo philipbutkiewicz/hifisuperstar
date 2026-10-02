@@ -52,6 +52,26 @@ Every cog above can be individually enabled/disabled in `config.json`.
 
 Slash commands are synced automatically on startup, so they should show up in Discord shortly after the bot connects.
 
+## Docker
+
+Install Docker with the Compose plugin, then create `config.json` from `config.json.example` and set `Bot.Token` as described above. Start the bot from the project directory:
+
+```sh
+docker compose up --build -d
+docker compose logs -f bot
+```
+
+The container includes ffmpeg and uses the locked Python dependencies. `config.json` is mounted read-only; `storage/` (guild settings and playlists), `cache/` (downloaded audio), and `normalized/` are mounted from the host so they survive container replacement. The bot does not need an inbound port.
+
+To also serve the optional playlist browser, set `FLASK_SECRET_KEY` to a strong random value in your shell and start the `web` profile:
+
+```sh
+export FLASK_SECRET_KEY="$(openssl rand -hex 32)"
+docker compose --profile web up --build -d
+```
+
+The browser listens on `127.0.0.1:5000` by default. Set `WEB_BIND` and `WEB_PORT` before starting Compose if you need a different interface or port, and configure `Web.Base_Url` to the URL your users can reach. The Flask server is intended for local or reverse-proxied use, not direct public exposure. Stop both services with `docker compose --profile web down` (omit `--profile web` when only running the bot). If the web image has no Git metadata, the footer displays `unknown` unless `GIT_COMMIT_SHA` is supplied.
+
 ### `config.json` reference
 
 - `Bot.Token` - your Discord bot token.
