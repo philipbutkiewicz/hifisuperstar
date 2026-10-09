@@ -1,4 +1,8 @@
+FROM node:22-bookworm-slim AS javascript
+
 FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+
+COPY --from=javascript /usr/local/bin/node /usr/local/bin/node
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg git libopus0 \

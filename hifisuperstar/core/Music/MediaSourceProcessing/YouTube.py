@@ -57,6 +57,7 @@ def media_get_youtube_playlist(url):
     try:
         while True:
             ydl_opts = {
+                **get_youtube_opts(),
                 "quiet": True,
                 "ignoreerrors": "only_download",
                 "extract_flat": "in_playlist",
@@ -87,7 +88,12 @@ def media_get_youtube_playlist(url):
 def media_search_youtube(query, limit=25):
     info(None, f"YouTube: Searching for '{query}' (limit {limit})...")
     with YoutubeDL(
-        {"quiet": True, "extract_flat": "in_playlist", "noplaylist": True}
+        {
+            **get_youtube_opts(),
+            "quiet": True,
+            "extract_flat": "in_playlist",
+            "noplaylist": True,
+        }
     ) as ydl:
         yt_info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
         return [entry for entry in (yt_info or {}).get("entries") or [] if entry]
@@ -129,6 +135,19 @@ def get_cached_track_path(url):
     return cache_path if os.path.exists(cache_path) else None
 
 
+def get_youtube_opts() -> dict[str, object]:
+    opts: dict[str, object] = {"js_runtimes": {"deno": {}, "node": {}}}
+    cookie_file = os.environ.get("HIFI_YOUTUBE_COOKIE_FILE")
+    if not cookie_file:
+        return opts
+    if not os.path.isfile(cookie_file):
+        raise FileNotFoundError(
+            f"HIFI_YOUTUBE_COOKIE_FILE must point to an existing cookie file: {cookie_file}"
+        )
+    opts["cookiefile"] = cookie_file
+    return opts
+
+
 def get_ydl_opts(query=None):
     cache_tpl = f"cache/{str_hash_sha256(query)}" if query is not None else ""
     normalized_path = os.path.join("normalized", cache_tpl)
@@ -138,6 +157,7 @@ def get_ydl_opts(query=None):
     else:
         warn(None, f'Normalized file in "{normalized_path}" does not exist!')
     return {
+        **get_youtube_opts(),
         "format": "m4a/bestaudio/best",
         "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "m4a"}],
         "noplaylist": True,

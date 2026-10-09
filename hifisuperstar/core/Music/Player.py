@@ -12,6 +12,7 @@ import validators
 from hifisuperstar.core.Music.Media import media_get_playlist, media_get_source
 from hifisuperstar.core.Music.PlayCounter import PlayCounter
 from hifisuperstar.core.Music.Playlist import Playlist
+from hifisuperstar.core.Server.Server import connect_voice
 from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error, info
 from hifisuperstar.io.Strings import str_hash_crc32
@@ -31,6 +32,13 @@ class Player:
         self.stopped = True
         self.prev = False
         self.jump_to_index = -1
+        self._voice_task = None
+        self._voice_channel = None
+        self._recovering = False
+        self._playback_id = 0
+        self._stream_url = None
+        self._restart_audio = False
+        self._next_track_task = None
 
     def get_play_counter(self):
         return self.play_counter
@@ -39,13 +47,26 @@ class Player:
         return self.playlist
 
     def after_track(self, arg):
+        self.interaction.client.loop.call_soon_threadsafe(
+            self._after_track, arg, self._playback_id
+        )
+
+    def _after_track(self, arg, playback_id):
+        if playback_id != self._playback_id or self.stopped or self._recovering:
+            return
         info(self, f"Track is over, args: {arg}", self.interaction.guild)
+        if arg is not None:
+            error(self, f"Audio playback failed: {arg}", self.interaction.guild)
+
+        voice = self.interaction.guild.voice_client
+        if voice is None or not voice.is_connected():
+            self._restart_audio = True
+            self._start_voice_monitor()
+            return
 
         if self.streaming:
-            return False
-
-        if self.stopped:
-            self.prev = False
+            self.stopped = True
+            self.streaming = False
             return False
 
         if not self.options["repeat"] and self.jump_to_index == -1:
@@ -67,14 +88,137 @@ class Player:
                 self.playlist.jump_to(self.jump_to_index)
                 self.jump_to_index = -1
 
-        self.play_track()
+        self._next_track_task = self.interaction.client.loop.create_task(
+            self._resume_playback()
+        )
 
-    def play_track(self, stream_url=None):
+    async def _resume_playback(self):
+        playback_id = self._playback_id
+        stream_url = self._stream_url if self.streaming else None
+        media_source = None
+        if stream_url is None:
+            track = self.playlist.get_current_track()
+            if track is None:
+                self.stopped = True
+                return
+            try:
+                media_source = await asyncio.to_thread(
+                    media_get_source,
+                    track["url"],
+                    allowed_mime_types=self.music_config["Allowed_Mime_Types"],
+                )
+            except Exception as exc:
+                error(
+                    self,
+                    f"Could not get media source for track ID {track['id']} - {exc}",
+                    self.interaction.guild,
+                )
+                if playback_id == self._playback_id:
+                    self.stopped = True
+                return
+        if playback_id == self._playback_id and not self.stopped:
+            self.play_track(stream_url, media_source=media_source)
+
+    async def _resume_if_idle(self, voice):
+        if voice.is_playing() or voice.is_paused():
+            return
+        if self._next_track_task is not None and not self._next_track_task.done():
+            return
+        await self._resume_playback()
+
+    def _start_voice_monitor(self):
+        if self._voice_task is None or self._voice_task.done():
+            self._voice_task = self.interaction.client.loop.create_task(
+                self._monitor_voice()
+            )
+
+    async def _monitor_voice(self):
+        try:
+            while not self.stopped:
+                await asyncio.sleep(2)
+                voice = self.interaction.guild.voice_client
+                if voice is not None and voice.is_connected():
+                    self._voice_channel = voice.channel
+                    if self._restart_audio:
+                        self._restart_audio = False
+                        await self._resume_if_idle(voice)
+                    continue
+
+                self._recovering = True
+                recovery_id = self._playback_id
+                info(
+                    self,
+                    "Voice connection lost; waiting for reconnect",
+                    self.interaction.guild,
+                )
+                # Give discord.py's own voice reconnect loop time to resume the existing audio.
+                for _ in range(5):
+                    await asyncio.sleep(2)
+                    if recovery_id != self._playback_id:
+                        break
+                    voice = self.interaction.guild.voice_client
+                    if voice is not None and voice.is_connected():
+                        break
+                else:
+                    self._playback_id += 1
+                    recovery_id = self._playback_id
+                    next_track = self._next_track_task
+                    if next_track is not None and not next_track.done():
+                        next_track.cancel()
+                        try:
+                            await next_track
+                        except asyncio.CancelledError:
+                            pass
+                    for attempt in range(3):
+                        if recovery_id != self._playback_id:
+                            break
+                        try:
+                            voice = await connect_voice(self._voice_channel)
+                            if not voice.is_connected():
+                                raise discord.ClientException(
+                                    "Voice connection did not complete"
+                                )
+                            break
+                        except (TimeoutError, discord.DiscordException, OSError) as exc:
+                            error(
+                                self,
+                                f"Voice reconnect attempt {attempt + 1} failed: {exc}",
+                                self.interaction.guild,
+                            )
+                            if attempt == 2:
+                                await self.stop_track()
+                                return
+                            await asyncio.sleep(5 * (attempt + 1))
+
+                self._recovering = False
+                self._restart_audio = False
+                voice = self.interaction.guild.voice_client
+                if voice is not None and voice.is_connected():
+                    await self._resume_if_idle(voice)
+        finally:
+            self._recovering = False
+
+    def play_track(self, stream_url=None, *, media_source=None):
         info(self, "Called")
         voice = self.interaction.guild.voice_client
 
-        if self.streaming:
-            self.stop_track()
+        if voice is None or not voice.is_connected():
+            error(
+                self,
+                "Cannot play while disconnected from voice",
+                self.interaction.guild,
+            )
+            if not self.stopped:
+                self._restart_audio = True
+                self._start_voice_monitor()
+            return False
+
+        self._playback_id += 1
+        self._restart_audio = False
+        playback_id = self._playback_id
+        self.streaming = stream_url is not None
+        self._stream_url = stream_url
+        self._voice_channel = voice.channel
 
         playback_url = None
         track = None
@@ -82,6 +226,7 @@ class Player:
             track = self.playlist.get_current_track()
             if track is None:
                 error(self, "No tracks in the playlist", self.interaction.guild)
+                self.stopped = True
                 return False
 
             if voice.is_playing():
@@ -93,16 +238,19 @@ class Player:
                     f"Getting media source for track ID {track['id']}...",
                     self.interaction.guild,
                 )
-                (_track_info, _url, playback_url) = media_get_source(
-                    track["url"],
-                    allowed_mime_types=self.music_config["Allowed_Mime_Types"],
-                )
+                if media_source is None:
+                    media_source = media_get_source(
+                        track["url"],
+                        allowed_mime_types=self.music_config["Allowed_Mime_Types"],
+                    )
+                (_track_info, _url, playback_url) = media_source
             except Exception as e:
                 error(
                     self,
                     f"Could not get media source for track ID {track['id']} - {e!s}",
                     self.interaction.guild,
                 )
+                self.stopped = True
                 return False
 
             info(
@@ -128,16 +276,37 @@ class Player:
                 "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
             )
 
-        voice.play(
-            discord.FFmpegPCMAudio(playback_url, **ffmpeg_options),
-            after=self.after_track,
-        )
-
-        voice.source = discord.PCMVolumeTransformer(
-            voice.source, volume=self.options["volume"]
-        )
+        try:
+            source = discord.PCMVolumeTransformer(
+                discord.FFmpegPCMAudio(playback_url, **ffmpeg_options),
+                volume=self.options["volume"],
+            )
+        except (discord.ClientException, OSError) as exc:
+            error(self, f"Could not create audio source: {exc}", self.interaction.guild)
+            self.stopped = True
+            return False
+        try:
+            voice.play(
+                source,
+                after=lambda exc: self.interaction.client.loop.call_soon_threadsafe(
+                    self._after_track, exc, playback_id
+                ),
+            )
+        except discord.ClientException as exc:
+            source.cleanup()
+            error(
+                self, f"Could not start audio playback: {exc}", self.interaction.guild
+            )
+            if voice.is_connected():
+                self.stopped = True
+                return False
+            self.stopped = False
+            self._restart_audio = True
+            self._start_voice_monitor()
+            return False
 
         self.stopped = False
+        self._start_voice_monitor()
         asyncio.run_coroutine_threadsafe(
             self.interaction.client.change_presence(
                 activity=discord.Activity(
@@ -148,9 +317,17 @@ class Player:
             ),
             self.interaction.client.loop,
         )
+        return True
 
     def queue_track(self, query=None):
         voice = self.interaction.guild.voice_client
+        if voice is None or not voice.is_connected():
+            error(
+                self,
+                "Cannot queue playback while disconnected from voice",
+                self.interaction.guild,
+            )
+            return False
 
         track_info = None
         if query is not None:
@@ -170,18 +347,29 @@ class Player:
             if len(self.playlist.get_tracks()) == 0:
                 return False
 
-        if not voice.is_playing():
-            self.play_track()
+        if (
+            not voice.is_playing()
+            and not voice.is_paused()
+            and self.play_track() is False
+        ):
+            return False
 
         return track_info["info"] if query is not None else True
 
     def queue_radio(self):
         voice = self.interaction.guild.voice_client
+        if voice is None or not voice.is_connected():
+            error(
+                self,
+                "Cannot play radio while disconnected from voice",
+                self.interaction.guild,
+            )
+            return False
 
-        if not voice.is_playing():
-            self.play_track(self.music_config["Radio_URL"])
-
-        return True
+        return (
+            voice.is_playing()
+            or self.play_track(self.music_config["Radio_URL"]) is not False
+        )
 
     async def queue_playlist(self, query):
         info(
@@ -237,6 +425,13 @@ class Player:
         self.jump_to_index = -1
 
         voice = self.interaction.guild.voice_client
+        if voice is None or not voice.is_connected():
+            error(
+                self,
+                "Cannot skip while disconnected from voice",
+                self.interaction.guild,
+            )
+            return False
         voice.stop()
 
     def skip_track_to_index(self, index):
@@ -247,6 +442,13 @@ class Player:
         self.prev = False
 
         voice = self.interaction.guild.voice_client
+        if voice is None or not voice.is_connected():
+            error(
+                self,
+                "Cannot jump while disconnected from voice",
+                self.interaction.guild,
+            )
+            return False
         voice.stop()
 
     def prev_track(self):
@@ -257,23 +459,50 @@ class Player:
         self.prev = True
 
         voice = self.interaction.guild.voice_client
+        if voice is None or not voice.is_connected():
+            error(
+                self,
+                "Cannot go back while disconnected from voice",
+                self.interaction.guild,
+            )
+            return False
         voice.stop()
 
     async def stop_track(self):
-        if self.stopped:
-            return False
-
-        voice = self.interaction.guild.voice_client
-        if voice.is_playing():
-            voice.stop()
-
+        self._playback_id += 1
         self.jump_to_index = -1
         self.prev = False
         self.stopped = True
         self.streaming = False
+        self._stream_url = None
+        self._restart_audio = False
+        next_track = self._next_track_task
+        if next_track is not None and next_track is not asyncio.current_task():
+            next_track.cancel()
+            try:
+                await next_track
+            except asyncio.CancelledError:
+                pass
+        self._next_track_task = None
+        task = self._voice_task
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        self._voice_task = None
+        self._recovering = False
+
+        voice = self.interaction.guild.voice_client
+        if voice is not None:
+            voice.stop()
+            try:
+                await voice.disconnect(force=True)
+            except (TimeoutError, discord.DiscordException, OSError) as exc:
+                error(self, f"Voice disconnect failed: {exc}", self.interaction.guild)
 
         await self.interaction.client.change_presence(activity=None)
-        await voice.disconnect()
 
     def set_volume(self, volume):
         if self.stopped:
@@ -282,7 +511,7 @@ class Player:
         voice = self.interaction.guild.voice_client
 
         self.options["volume"] = float(volume)
-        if voice.source:
+        if voice is not None and voice.source:
             voice.source.volume = self.options["volume"]
         else:
             return False

@@ -158,7 +158,7 @@ class BotFeatureTests(unittest.TestCase):
             (second, "https://other/radio"),
         ):
             player.interaction.guild.voice_client = SimpleNamespace(
-                is_playing=lambda: False
+                is_playing=lambda: False, is_connected=lambda: True
             )
             with patch.object(player, "play_track") as play_track:
                 player.queue_radio()

@@ -26,6 +26,7 @@ Every cog above can be individually enabled/disabled in `config.json`.
 
 - Python 3.11+
 - [ffmpeg](https://ffmpeg.org/) available on your `PATH` (required for audio playback)
+- Node.js 22+ or Deno 2.3+ available on the bot process's `PATH` (required for YouTube JavaScript challenges). Both are enabled; yt-dlp prefers Deno when available.
 - A Discord bot application/token
 - Dependencies are managed with [uv](https://github.com/astral-sh/uv) via `pyproject.toml` / `uv.lock`. A `requirements.txt` is also present but not the source of truth - prefer `uv sync`.
 
@@ -51,6 +52,57 @@ Every cog above can be individually enabled/disabled in `config.json`.
    ```
 
 Slash commands are synced automatically on startup, so they should show up in Discord shortly after the bot connects.
+
+### YouTube authentication
+
+YouTube extraction also requires a supported JavaScript runtime and the EJS
+challenge solver, independently of cookies. `uv sync` installs the solver through
+`yt-dlp[default]`; the Docker image includes Node.js. For a local install, ensure
+`node --version` reports 22+ (or `deno --version` reports 2.3+) in the same
+environment that starts the bot. A service does not necessarily inherit an
+interactive shell's nvm `PATH`.
+
+If you see **"Signature solving failed"**, **"n challenge solving failed"**, or
+**"Only images are available"**, run `uv sync`, check the runtime's availability,
+and restart the bot. Do not change the requested audio format to work around a
+missing solver. See yt-dlp's [EJS setup guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+
+If yt-dlp reports **"Sign in to confirm you're not a bot"**, YouTube is rejecting
+the unauthenticated request. The bot can pass an exported cookie file to yt-dlp
+for playback, searches, playlist imports, and playlist downloads:
+
+1. Follow yt-dlp's [YouTube cookie export instructions](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies).
+   The file must use Netscape/Mozilla cookie format, not JSON.
+2. Save it as `cookies/youtube.txt` under the project directory and restrict access
+   (for example, `chmod 600 cookies/youtube.txt`). Cookies are account credentials:
+   never paste them into chat, commit them, or share them. The `cookies/` directory
+   is excluded from Git and Docker build contexts.
+3. Set the environment variable before starting the bot:
+   ```sh
+   export HIFI_YOUTUBE_COOKIE_FILE="$PWD/cookies/youtube.txt"
+   ./start.sh
+   ```
+
+The setting is process-wide, not per guild. Without it, extraction continues
+without cookies. A configured file must exist and be readable and writable by
+the bot (yt-dlp can update the cookie file). Replace expired cookies and restart
+the bot when necessary. Authentication is not guaranteed to resolve every YouTube
+restriction; account use with yt-dlp can also carry a risk of account bans.
+
+For Docker, create a `docker-compose.override.yml` alongside the existing Compose
+file so the cookie path is available **inside** the bot container:
+
+```yaml
+services:
+  bot:
+    environment:
+      HIFI_YOUTUBE_COOKIE_FILE: /app/cookies/youtube.txt
+    volumes:
+      - ./cookies:/app/cookies
+```
+
+Then recreate the bot with `docker compose up --build -d bot`. Do not bake cookies
+into an image.
 
 ## Docker
 
@@ -101,6 +153,14 @@ Server-facing values in the sections above are defaults. Put overrides in `Guild
 This also applies to Spotify and LLM API credentials if servers use different accounts. `Bot.Token` and `Bot.Enabled_Cogs` remain process-wide. `Web.Enabled` starts no server by itself; a per-guild `Web` override only changes the playlist link displayed by the bot. Slash-command changes to LLM settings take precedence over defaults and `Guilds` overrides until changed again.
 
 ## Commands
+
+During playback, the music player gives discord.py 10 seconds to restore a lost
+voice connection, then makes up to three fresh connection attempts. If the audio
+player has stopped, recovery restarts the current track from the beginning (or
+restarts the radio stream), without advancing or clearing the queue. `/stop`
+cancels recovery and disconnects. If all attempts fail, the failure is logged and
+the player stops but keeps its queue; `/play` can reconnect and resume it without
+requiring `/stop` first.
 
 Commands are grouped roughly by cog. Admin-only commands are noted.
 

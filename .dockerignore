@@ -7,6 +7,7 @@ __pycache__
 *.py[cod]
 *.log
 config.json
+cookies
 .env
 .env.*
 storage

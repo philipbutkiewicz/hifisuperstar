@@ -23,6 +23,7 @@ from hifisuperstar.core.Acl import Rule
 from hifisuperstar.core.Acl.Acl import Acl
 from hifisuperstar.core.Music.MediaSourceProcessing.YouTube import (
     get_ydl_opts,
+    get_youtube_opts,
     media_search_youtube,
 )
 from hifisuperstar.core.Music.Player import Player
@@ -55,7 +56,12 @@ def resolve_track_cache_url(track_url: str) -> str:
         return track_url
 
     with YoutubeDL(
-        {"format": "m4a/bestaudio/best", "noplaylist": True, "quiet": True}
+        {
+            **get_youtube_opts(),
+            "format": "m4a/bestaudio/best",
+            "noplaylist": True,
+            "quiet": True,
+        }
     ) as ydl:
         yt_info = ydl.extract_info(f"ytsearch:{track_url}", download=False)["entries"][
             0
@@ -787,6 +793,8 @@ class MusicCog(commands.Cog):
             )
 
         await player.stop_track()
+        if not await join_voice(interaction):
+            return False
         player.get_playlist().clear()
 
         await respond(interaction, "Hold on, let me look that up...")
@@ -822,7 +830,7 @@ class MusicCog(commands.Cog):
                 interaction, "ERROR: Failed to get the player for this Discord server"
             )
 
-        player.stop_track()
+        await player.stop_track()
 
         if not validators.url(query) and not re.match(allowed_chars_regex, query):
             warn(self, "Invalid input", interaction.guild)
