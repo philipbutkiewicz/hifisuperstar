@@ -3,23 +3,35 @@
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
+import json
 import os
+import tempfile
 import threading
+from urllib.parse import parse_qs, urlparse
 
 from yt_dlp import YoutubeDL
 
 from hifisuperstar.io.Logger import error, info, warn
 from hifisuperstar.io.Strings import str_hash_sha256
 
+_download_locks = {}
+_download_locks_guard = threading.Lock()
+
 
 def media_get_youtube_direct(url):
+    cached = get_cached_youtube_source(url)
+    if cached is not None:
+        return cached
+
     info(None, f"YouTube: Extracting YouTube link info for query '{url}'...")
     with YoutubeDL(get_ydl_opts()) as ydl:
         yt_info = ydl.extract_info(url, download=False)
 
         track_info = {"info": yt_info, "is_youtube": True}
+        cache_youtube_info(url, url, yt_info)
 
-        download_youtube_media(url)
+        if get_cached_track_path(url) is None:
+            download_youtube_media(url)
 
         return (
             track_info,
@@ -29,6 +41,10 @@ def media_get_youtube_direct(url):
 
 
 def media_get_youtube_query(query):
+    cached = get_cached_youtube_source(query)
+    if cached is not None:
+        return cached
+
     info(None, f"YouTube: Performing a YouTube search for query '{query}'...")
     with YoutubeDL(get_ydl_opts()) as ydl:
         yt_info = ydl.extract_info(f"ytsearch:{query}", download=False)["entries"][0]
@@ -36,8 +52,10 @@ def media_get_youtube_query(query):
         track_info = {"info": yt_info, "is_youtube": True}
 
         url = f"https://youtube.com/watch?v={yt_info['id']}"
+        cache_youtube_info(query, url, yt_info)
 
-        download_youtube_media(url)
+        if get_cached_track_path(url) is None:
+            download_youtube_media(url)
 
         return (
             track_info,
@@ -106,14 +124,56 @@ def download_youtube_media(url):
 
 
 def download_youtube_media_thread(url):
-    with YoutubeDL(get_ydl_opts(url)) as ydl:
-        try:
-            ydl.download([url])
-        except:
-            error(
-                None,
-                f"YouTube: Cache download failed for '{url}'. Download will be resumed the next time this track is played",
-            )
+    try:
+        download_and_cache_youtube_media(url)
+    except Exception as exc:
+        error(
+            None,
+            f"YouTube: Cache download failed for '{url}' - {exc}. Download will be resumed the next time this track is played",
+        )
+
+
+def download_and_cache_youtube_media(url):
+    with _download_locks_guard:
+        lock = _download_locks.setdefault(canonical_youtube_url(url), threading.Lock())
+    with lock:
+        if get_cached_track_path(url) is not None:
+            return
+        with YoutubeDL(get_ydl_opts(url)) as ydl:
+            yt_info = ydl.extract_info(url, download=True)
+            cache_youtube_info(url, url, yt_info)
+
+
+def precache_youtube_track(query):
+    if get_cached_youtube_source(query) is not None:
+        return False
+
+    cached = get_cached_youtube_info(query)
+    parsed = urlparse(query)
+    is_url = parsed.scheme in ("http", "https")
+    url = query if is_url else cached["url"] if cached is not None else None
+    downloaded = False
+    if cached is None:
+        if is_url and get_cached_track_path(url) is None:
+            download_and_cache_youtube_media(url)
+            downloaded = True
+        else:
+            with YoutubeDL(get_ydl_opts()) as ydl:
+                yt_info = ydl.extract_info(
+                    query if is_url else f"ytsearch:{query}", download=False
+                )
+                if not is_url:
+                    yt_info = yt_info["entries"][0]
+                    url = f"https://youtube.com/watch?v={yt_info['id']}"
+                cache_youtube_info(query, url, yt_info)
+
+    if not downloaded:
+        download_and_cache_youtube_media(url)
+    if get_cached_youtube_source(query) is None:
+        raise RuntimeError(
+            f"Audio or metadata is still missing after caching '{query}'"
+        )
+    return True
 
 
 def get_best_audio_url(yt_info):
@@ -131,8 +191,108 @@ def get_best_audio_url(yt_info):
 
 def get_cached_track_path(url):
     # Playing from the already-downloaded local file avoids real-time network jitter causing playback skips
-    cache_path = f"cache/{str_hash_sha256(url)}.m4a"
-    return cache_path if os.path.exists(cache_path) else None
+    keys = dict.fromkeys((url, canonical_youtube_url(url)))
+    for directory in ("normalized/cache", "cache"):
+        for key in keys:
+            path = os.path.join(directory, f"{str_hash_sha256(key)}.m4a")
+            if os.path.isfile(path):
+                return path
+    return None
+
+
+def canonical_youtube_url(url):
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    video_id = None
+    if host == "youtu.be":
+        video_id = parsed.path.strip("/").split("/")[0]
+    elif host in ("youtube.com", "www.youtube.com", "m.youtube.com"):
+        if parsed.path == "/watch":
+            video_id = parse_qs(parsed.query).get("v", [None])[0]
+        elif parsed.path.startswith(("/shorts/", "/embed/", "/live/")):
+            video_id = parsed.path.split("/")[2]
+    if video_id:
+        return f"https://youtube.com/watch?v={video_id}"
+    return url
+
+
+def get_cached_youtube_info(query):
+    path = f"cache/{str_hash_sha256(canonical_youtube_url(query))}.info.json"
+    try:
+        with open(path, encoding="utf-8") as file:
+            cached = json.load(file)
+        if (
+            not isinstance(cached, dict)
+            or not isinstance(cached.get("url"), str)
+            or not isinstance(cached.get("info"), dict)
+            or not isinstance(cached["info"].get("id"), str)
+            or not isinstance(cached["info"].get("title"), str)
+        ):
+            raise TypeError("Missing or invalid track metadata")
+        return cached
+    except FileNotFoundError:
+        return None
+    except (OSError, TypeError, ValueError) as exc:
+        warn(None, f"YouTube: Could not read cached metadata '{path}' - {exc}")
+        return None
+
+
+def cache_youtube_info(query, url, yt_info):
+    # Stream URLs and request headers expire and may contain authentication data.
+    fields = (
+        "id",
+        "title",
+        "duration",
+        "thumbnail",
+        "description",
+        "uploader",
+        "uploader_id",
+        "channel",
+        "channel_id",
+        "webpage_url",
+        "upload_date",
+        "view_count",
+        "like_count",
+        "artist",
+        "album",
+        "track",
+    )
+    metadata = {key: yt_info[key] for key in fields if key in yt_info}
+    if not isinstance(metadata.get("id"), str) or not isinstance(
+        metadata.get("title"), str
+    ):
+        warn(None, f"YouTube: Cannot cache incomplete metadata for '{url}'")
+        return
+    cached = {"url": url, "info": metadata}
+    for key in dict.fromkeys(
+        (canonical_youtube_url(query), canonical_youtube_url(url))
+    ):
+        path = f"cache/{str_hash_sha256(key)}.info.json"
+        temporary_path = None
+        try:
+            os.makedirs("cache", exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir="cache", suffix=".tmp", delete=False
+            ) as file:
+                temporary_path = file.name
+                json.dump(cached, file)
+            os.replace(temporary_path, path)
+        except (OSError, TypeError, ValueError) as exc:
+            warn(None, f"YouTube: Could not write cached metadata '{path}' - {exc}")
+        finally:
+            if temporary_path is not None and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
+
+
+def get_cached_youtube_source(query):
+    cached = get_cached_youtube_info(query)
+    if cached is None:
+        return None
+    audio_path = get_cached_track_path(query) or get_cached_track_path(cached["url"])
+    if audio_path is None:
+        return None
+    info(None, f"YouTube: Playing cached track '{cached['info']['title']}'")
+    return {"info": cached["info"], "is_youtube": True}, cached["url"], audio_path
 
 
 def get_youtube_opts() -> dict[str, object]:
@@ -149,7 +309,11 @@ def get_youtube_opts() -> dict[str, object]:
 
 
 def get_ydl_opts(query=None):
-    cache_tpl = f"cache/{str_hash_sha256(query)}" if query is not None else ""
+    cache_tpl = (
+        f"cache/{str_hash_sha256(canonical_youtube_url(query))}"
+        if query is not None
+        else ""
+    )
     normalized_path = os.path.join("normalized", cache_tpl)
     if os.path.exists(f"{normalized_path}.m4a"):
         cache_tpl = normalized_path

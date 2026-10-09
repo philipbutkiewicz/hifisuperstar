@@ -53,6 +53,38 @@ Every cog above can be individually enabled/disabled in `config.json`.
 
 Slash commands are synced automatically on startup, so they should show up in Discord shortly after the bot connects.
 
+### YouTube track cache
+
+Downloaded audio is stored in `cache/<hash>.m4a`; descriptive track metadata is
+saved atomically in `cache/<hash>.info.json`. With both present, playback and
+queueing use local files without contacting YouTube or requiring cookies or a
+JavaScript runtime. Normalized audio under `normalized/cache/` is preferred when
+available. Common watch, short-link, embed, and Shorts URLs share metadata/cache
+lookups; repeated search queries also remember their resolved video.
+
+Existing audio without metadata needs one successful YouTube lookup to populate
+its sidecar, but is not downloaded again. Missing audio causes fresh extraction;
+expiring stream URLs, formats, and authentication headers are not persisted or
+reused. Unreadable or invalid metadata is logged and fetched again. Playlist
+downloads also reuse cached audio and query resolutions. `/search` and playlist
+imports still fetch their result lists from YouTube.
+
+Metadata has no automatic expiry. To refresh a cached search query or a video's
+title, remove its `.info.json` sidecar(s); deleting the audio forces a fresh
+extraction and download on the next play.
+
+`/music_precache_queue` processes a snapshot of the entire current queue, including
+tracks before the current position, and caches both metadata and audio. It runs
+sequentially without changing playback, the queue, or its current position. No
+voice connection or S3 configuration is required. It skips direct non-YouTube
+URLs, continues after individual failures, and reports cached/already-cached/
+skipped/failed totals. Only one precache operation runs per server at a time.
+The status message refreshes every five seconds, including during a long download,
+and shows the current track and completed counts. Updates use the bot's channel
+message access rather than an expiring interaction token.
+Tracks added afterwards require another run. Access follows the normal music ACL
+defaults and can be overridden with the `MUSIC_PRECACHE_QUEUE` rule.
+
 ### YouTube authentication
 
 YouTube extraction also requires a supported JavaScript runtime and the EJS
@@ -165,7 +197,7 @@ requiring `/stop` first.
 Commands are grouped roughly by cog. Admin-only commands are noted.
 
 **Music**
-`/play`, `/search`, `/play_radio`, `/playlist`, `/list_playlists`, `/playlist_view`, `/playlist_save`, `/playlist_delete`, `/playlist_download`, `/playlist_downloads`, `/stop`, `/skip`, `/prev`, `/jump_to_index`, `/queue`, `/top_tracks`, `/volume`, `/repeat`, `/repeat_all`
+`/play`, `/search`, `/play_radio`, `/playlist`, `/list_playlists`, `/playlist_view`, `/playlist_save`, `/playlist_delete`, `/playlist_download`, `/playlist_downloads`, `/music_precache_queue`, `/stop`, `/skip`, `/prev`, `/jump_to_index`, `/queue`, `/top_tracks`, `/volume`, `/repeat`, `/repeat_all`
 
 **Spotify**
 `/spotify_import_playlist`

@@ -21,6 +21,9 @@ class YouTubeAuthTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
+        previous_directory = os.getcwd()
+        os.chdir(self.directory.name)
+        self.addCleanup(os.chdir, previous_directory)
         self.cookie_file = os.path.join(self.directory.name, "youtube.txt")
         with open(self.cookie_file, "w") as cookies:
             cookies.write("# Netscape HTTP Cookie File\n")
@@ -76,7 +79,7 @@ class YouTubeAuthTests(unittest.TestCase):
 
     def test_playback_and_cache_download_use_cookies(self):
         url = "https://youtube.com/watch?v=example"
-        track_info = {"id": "example"}
+        track_info = {"id": "example", "title": "Example"}
         with (
             patch.object(YouTube, "YoutubeDL") as factory,
             patch.object(YouTube, "download_youtube_media") as download,
@@ -91,8 +94,9 @@ class YouTubeAuthTests(unittest.TestCase):
                 YouTube.media_get_youtube_query("song")[1:], (url, "audio")
             )
             self.assertEqual(download.call_count, 2)
+            ydl.extract_info.return_value = track_info
             YouTube.download_youtube_media_thread(url)
-            ydl.download.assert_called_once_with([url])
+            ydl.extract_info.assert_called_with(url, download=True)
             for call in factory.call_args_list:
                 self.assertEqual(call.args[0]["cookiefile"], self.cookie_file)
                 self.assertEqual(call.args[0]["js_runtimes"], {"deno": {}, "node": {}})
@@ -120,14 +124,20 @@ class YouTubeAuthTests(unittest.TestCase):
                 self.assertEqual(call.args[0]["js_runtimes"], {"deno": {}, "node": {}})
 
     def test_playlist_download_lookup_and_download_use_cookies(self):
-        with patch("hifisuperstar.cogs.Music.MusicCog.YoutubeDL") as factory:
+        with (
+            patch("hifisuperstar.cogs.Music.MusicCog.YoutubeDL") as factory,
+            patch.object(YouTube, "YoutubeDL") as download_factory,
+        ):
             ydl = factory.return_value.__enter__.return_value
-            ydl.extract_info.return_value = {"entries": [{"id": "example"}]}
+            track_info = {"id": "example", "title": "Example"}
+            ydl.extract_info.return_value = {"entries": [track_info]}
+            downloader = download_factory.return_value.__enter__.return_value
+            downloader.extract_info.return_value = track_info
             url = resolve_track_cache_url("song")
             self.assertEqual(url, "https://youtube.com/watch?v=example")
             download_and_cache_youtube_track(url)
-            ydl.download.assert_called_once_with([url])
-            for call in factory.call_args_list:
+            downloader.extract_info.assert_called_once_with(url, download=True)
+            for call in factory.call_args_list + download_factory.call_args_list:
                 self.assertEqual(call.args[0]["cookiefile"], self.cookie_file)
                 self.assertEqual(call.args[0]["js_runtimes"], {"deno": {}, "node": {}})
 

@@ -5,7 +5,6 @@
 
 import asyncio
 import io
-import os
 import re
 import threading
 import time
@@ -22,16 +21,20 @@ from yt_dlp import YoutubeDL
 from hifisuperstar.core.Acl import Rule
 from hifisuperstar.core.Acl.Acl import Acl
 from hifisuperstar.core.Music.MediaSourceProcessing.YouTube import (
-    get_ydl_opts,
+    cache_youtube_info,
+    download_and_cache_youtube_media,
+    get_cached_track_path,
+    get_cached_youtube_info,
     get_youtube_opts,
     media_search_youtube,
+    precache_youtube_track,
 )
 from hifisuperstar.core.Music.Player import Player
 from hifisuperstar.core.Music.Playlist import Playlist
 from hifisuperstar.core.Server.Server import check_server, join_voice, respond
 from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error, info, warn
-from hifisuperstar.io.Strings import allowed_chars_regex, str_hash_sha256
+from hifisuperstar.io.Strings import allowed_chars_regex
 
 PLAYLIST_TRACKS_PER_PAGE = 20
 PLAYLIST_DOWNLOADS_PER_PAGE = 20
@@ -50,10 +53,12 @@ def sanitize_filename(name: str) -> str:
 
 
 def resolve_track_cache_url(track_url: str) -> str:
-    # Tracks queued via a search query store the raw query as 'url', but the cache is keyed by the
-    # resolved YouTube watch URL, so it needs to be looked up again (metadata only, no download).
+    # Older playlists may store search queries instead of resolved YouTube URLs.
     if validators.url(track_url):
         return track_url
+    cached = get_cached_youtube_info(track_url)
+    if cached is not None:
+        return cached["url"]
 
     with YoutubeDL(
         {
@@ -66,7 +71,9 @@ def resolve_track_cache_url(track_url: str) -> str:
         yt_info = ydl.extract_info(f"ytsearch:{track_url}", download=False)["entries"][
             0
         ]
-        return f"https://youtube.com/watch?v={yt_info['id']}"
+        url = f"https://youtube.com/watch?v={yt_info['id']}"
+        cache_youtube_info(track_url, url, yt_info)
+        return url
 
 
 def is_youtube_url(url: str) -> bool:
@@ -84,8 +91,7 @@ def format_duration(seconds) -> str:
 
 
 def download_and_cache_youtube_track(url: str):
-    with YoutubeDL(get_ydl_opts(url)) as ydl:
-        ydl.download([url])
+    download_and_cache_youtube_media(url)
 
 
 def get_s3_client(s3_config: dict):
@@ -653,6 +659,7 @@ class MusicCog(commands.Cog):
         self.config = config
         self.players = {}
         self.playlist_downloads_in_progress = set()
+        self.queue_precaches_in_progress = set()
 
     async def get_player(self, interaction: discord.Interaction):
         if not await check_server(interaction):
@@ -662,6 +669,103 @@ class MusicCog(commands.Cog):
             self.players[str(interaction.guild.id)] = Player(interaction, self.config)
 
         return self.players[str(interaction.guild.id)]
+
+    @app_commands.command(
+        name="music_precache_queue",
+        description="Caches YouTube metadata and audio for every track in the current queue",
+    )
+    async def music_precache_queue(self, interaction: discord.Interaction):
+        if not await check_server(interaction):
+            return False
+        if not await Acl(interaction.guild.id).check_and_fail(
+            Rule.MUSIC_PRECACHE_QUEUE, interaction
+        ):
+            return False
+
+        guild_id = str(interaction.guild.id)
+        if guild_id in self.queue_precaches_in_progress:
+            return await respond(interaction, "ERROR: Queue precaching is already running for this server.")
+        player = await self.get_player(interaction)
+        if player is None:
+            error(self, "Failed to get the player", interaction.guild)
+            return await respond(interaction, "ERROR: Failed to get the player.")
+        tracks = [dict(track) for track in player.get_playlist().get_tracks()]
+        if not tracks:
+            return await respond(interaction, "The music queue is empty.")
+
+        self.queue_precaches_in_progress.add(guild_id)
+        cached = already_cached = skipped = failed = 0
+        completed = 0
+        current_title = ""
+        progress_task = None
+        finished = asyncio.Event()
+
+        async def update_progress():
+            try:
+                await message.edit(
+                    content=f"Precaching queue: {completed}/{len(tracks)} tracks processed "
+                    f"({cached} cached, {already_cached} already cached, {skipped} skipped, {failed} failed).\n"
+                    f"Current track: {current_title}",
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            except discord.HTTPException as exc:
+                warn(self, f"Could not update precache progress: {exc}", interaction.guild)
+
+        async def report_progress():
+            while not finished.is_set():
+                try:
+                    await asyncio.wait_for(finished.wait(), timeout=5)
+                except TimeoutError:
+                    await update_progress()
+
+        try:
+            content = f"Precaching queue: 0/{len(tracks)} tracks processed..."
+            if interaction.response.is_done():
+                response = await interaction.followup.send(content, wait=True)
+            else:
+                await interaction.response.send_message(content)
+                response = await interaction.original_response()
+            # InteractionMessage.edit uses an expiring webhook token; fetch a regular Message instead.
+            message = await interaction.channel.fetch_message(response.id)
+            current_title = str(tracks[0].get("title") or tracks[0].get("url") or "Unknown")[:200]
+            await update_progress()
+            progress_task = asyncio.create_task(report_progress())
+            for position, track in enumerate(tracks, start=1):
+                current_title = str(track.get("title") or track.get("url") or "Unknown")[:200]
+                query = track.get("url")
+                if not query:
+                    failed += 1
+                    error(self, f"Cannot precache track '{track.get('title', position)}': missing URL", interaction.guild)
+                elif validators.url(query) and not is_youtube_url(query):
+                    skipped += 1
+                else:
+                    try:
+                        downloaded = await asyncio.to_thread(precache_youtube_track, query)
+                        if downloaded:
+                            cached += 1
+                        else:
+                            already_cached += 1
+                    except Exception as exc:
+                        failed += 1
+                        error(self, f"Could not precache '{track.get('title', query)}' - {exc}", interaction.guild)
+
+                completed = position
+
+            finished.set()
+            await progress_task
+            await message.edit(
+                content=f"Queue precache finished: {cached} cached, {already_cached} already cached, "
+                f"{skipped} non-YouTube tracks skipped, {failed} failed ({len(tracks)} total).",
+            )
+        finally:
+            finished.set()
+            if progress_task is not None and not progress_task.done():
+                progress_task.cancel()
+                try:
+                    await progress_task
+                except asyncio.CancelledError:
+                    pass
+            self.queue_precaches_in_progress.discard(guild_id)
 
     async def play_from_search(self, interaction: discord.Interaction, query: str):
         if not await join_voice(interaction):
@@ -949,8 +1053,8 @@ class MusicCog(commands.Cog):
             )
             return None
 
-        track_path = os.path.join("cache", f"{str_hash_sha256(cache_url)}.m4a")
-        if not os.path.exists(track_path):
+        track_path = get_cached_track_path(cache_url)
+        if track_path is None:
             info(
                 self,
                 f"Track '{track['title']}' not cached yet, fetching...",
@@ -966,7 +1070,8 @@ class MusicCog(commands.Cog):
                 )
                 return None
 
-        if not os.path.exists(track_path):
+        track_path = get_cached_track_path(cache_url)
+        if track_path is None:
             warn(
                 self,
                 f"Track '{track['title']}' still missing from cache after fetching, skipping",
