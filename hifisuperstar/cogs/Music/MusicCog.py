@@ -5,6 +5,7 @@
 
 import asyncio
 import io
+import os
 import re
 import threading
 import time
@@ -1356,6 +1357,61 @@ class MusicCog(commands.Cog):
             )
 
         await respond(interaction, "Playlist deleted!")
+
+    @app_commands.command(
+        name="playlist_rename", description="Renames a saved playlist"
+    )
+    @app_commands.describe(name="Current playlist name", new_name="New playlist name")
+    @app_commands.checks.has_role("Admin")
+    async def playlist_rename(
+        self, interaction: discord.Interaction, name: str, new_name: str
+    ):
+        info(self, "Rename playlist request")
+
+        if not await check_server(interaction):
+            error(self, "Server verification failed")
+            return False
+
+        if not await Acl(interaction.guild.id).check_and_fail(
+            Rule.MUSIC_PLAYLIST_RENAME, interaction
+        ):
+            return False
+
+        for value in (name, new_name):
+            if not validators.url(value) and not re.fullmatch(allowed_chars_regex, value):
+                warn(self, "Invalid input", interaction.guild)
+                return await respond(
+                    interaction,
+                    "ERROR: Invalid format, only alphanumeric characters or URLs are allowed.",
+                )
+
+        playlist = Playlist(interaction.guild.id, name)
+        try:
+            if not playlist.load_from_storage():
+                warn(self, "Playlist not found", interaction.guild)
+                return await respond(interaction, f"ERROR: Playlist '{name}' not found!")
+            if name == new_name:
+                return await respond(interaction, f"Playlist is already named '{name}'.")
+            destination = Playlist(interaction.guild.id, new_name)
+            if (
+                new_name in playlist.get_available_playlists()
+                or os.path.exists(destination.get_playlist_path())
+            ):
+                warn(self, "Playlist name already exists", interaction.guild)
+                return await respond(
+                    interaction, f"ERROR: Playlist '{new_name}' already exists!"
+                )
+            if not playlist.rename(new_name):
+                return await respond(
+                    interaction, f"ERROR: Failed to rename playlist '{name}'"
+                )
+        except (OSError, TypeError, ValueError) as exc:
+            error(self, f"Failed to rename playlist '{name}': {exc}", interaction.guild)
+            return await respond(
+                interaction, f"ERROR: Failed to rename playlist '{name}'"
+            )
+
+        await respond(interaction, f"Playlist '{name}' renamed to '{new_name}'!")
 
     @app_commands.command(name="stop", description="Stops playback")
     async def stop(self, interaction: discord.Interaction):

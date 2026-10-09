@@ -5,6 +5,7 @@
 
 import json
 import os
+import tempfile
 
 from hifisuperstar.io.Logger import error, warn
 from hifisuperstar.io.Strings import str_hash_sha256, str_rand_crc32
@@ -101,14 +102,76 @@ class Playlist:
 
     def save_available_playlists(self, available_playlists):
         list_path = os.path.join(self.get_playlist_storage_path(), "list.json")
+        temporary_path = None
         try:
-            with open(list_path, "w") as outfile:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=os.path.dirname(list_path), delete=False
+            ) as outfile:
+                temporary_path = outfile.name
                 json.dump(available_playlists, outfile)
-        except:
-            error(self, f"Failed saving available playlists to {list_path}")
+            os.replace(temporary_path, list_path)
+        except (OSError, TypeError, ValueError) as exc:
+            error(self, f"Failed saving available playlists to {list_path}: {exc}")
             return False
+        finally:
+            if temporary_path is not None and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
 
         return True
+
+    def rename(self, new_name):
+        old_name = self.name
+        new_path = Playlist(self.guild_id, new_name).get_playlist_path()
+        destination_created = False
+        index_updated = False
+        renamed = False
+        try:
+            old_path = self.get_playlist_path()
+            if not self.load_from_storage():
+                error(self, f"Failed renaming playlist '{old_name}': not found")
+                return False
+            if old_name == new_name:
+                return True
+            available_playlists = self.get_available_playlists()
+            if new_name in available_playlists or os.path.exists(new_path):
+                error(self, f"Failed renaming playlist: '{new_name}' already exists")
+                return False
+            renamed_playlists = [
+                new_name if name == old_name else name for name in available_playlists
+            ]
+            if new_name not in renamed_playlists:
+                renamed_playlists.append(new_name)
+            with open(new_path, "x", encoding="utf-8") as outfile:
+                destination_created = True
+                json.dump(
+                    {"name": new_name, "guild_id": self.guild_id, "tracks": self.tracks},
+                    outfile,
+                )
+            if not self.save_available_playlists(renamed_playlists):
+                return False
+            index_updated = True
+            os.remove(old_path)
+            self.name = new_name
+            renamed = True
+            return True
+        except (OSError, TypeError, ValueError) as exc:
+            error(self, f"Failed renaming playlist '{old_name}' to '{new_name}': {exc}")
+            return False
+        finally:
+            if destination_created and not renamed:
+                if index_updated and not self.save_available_playlists(
+                    available_playlists
+                ):
+                    error(
+                        self, f"Failed restoring playlist index after renaming '{old_name}'"
+                    )
+                try:
+                    os.remove(new_path)
+                except OSError as exc:
+                    error(
+                        self,
+                        f"Failed removing incomplete renamed playlist '{new_path}': {exc}",
+                    )
 
     def delete(self):
         if not self.load_from_storage():
