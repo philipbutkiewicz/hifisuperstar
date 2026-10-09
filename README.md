@@ -69,6 +69,13 @@ reused. Unreadable or invalid metadata is logged and fetched again. Playlist
 downloads also reuse cached audio and query resolutions. `/search` and playlist
 imports still fetch their result lists from YouTube.
 
+Failed YouTube fetches (including read timeouts and HTTP 403 errors) are retried
+three times after the initial attempt, with a five-second wait between attempts.
+This applies to playback lookups, searches, playlist pages, and audio downloads.
+Each retry is logged; failures that persist after all retries use the normal
+error handling. Downloads re-extract media information on each retry rather than
+reusing a failed stream URL.
+
 Metadata has no automatic expiry. To refresh a cached search query or a video's
 title, remove its `.info.json` sidecar(s); deleting the audio forces a fresh
 extraction and download on the next play.

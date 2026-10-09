@@ -23,6 +23,7 @@ from hifisuperstar.core.Acl.Acl import Acl
 from hifisuperstar.core.Music.MediaSourceProcessing.YouTube import (
     cache_youtube_info,
     download_and_cache_youtube_media,
+    extract_youtube_info,
     get_cached_track_path,
     get_cached_youtube_info,
     get_youtube_opts,
@@ -68,7 +69,7 @@ def resolve_track_cache_url(track_url: str) -> str:
             "quiet": True,
         }
     ) as ydl:
-        yt_info = ydl.extract_info(f"ytsearch:{track_url}", download=False)["entries"][
+        yt_info = extract_youtube_info(ydl, f"ytsearch:{track_url}")["entries"][
             0
         ]
         url = f"https://youtube.com/watch?v={yt_info['id']}"

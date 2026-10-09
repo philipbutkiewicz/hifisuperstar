@@ -7,15 +7,35 @@ import json
 import os
 import tempfile
 import threading
+import time
 from urllib.parse import parse_qs, urlparse
 
 from yt_dlp import YoutubeDL
+from yt_dlp.networking.exceptions import TransportError
+from yt_dlp.utils import DownloadError
 
 from hifisuperstar.io.Logger import error, info, warn
 from hifisuperstar.io.Strings import str_hash_sha256
 
 _download_locks = {}
 _download_locks_guard = threading.Lock()
+
+
+def extract_youtube_info(ydl, query, *, download=False):
+    retries = 0
+    while True:
+        try:
+            return ydl.extract_info(query, download=download)
+        except (DownloadError, TransportError, TimeoutError, ConnectionError) as exc:
+            if retries == 3:
+                raise
+            retries += 1
+            warn(
+                None,
+                f"YouTube: Fetch failed for '{query}' - {exc}. "
+                f"Retry {retries}/3 in 5 seconds",
+            )
+            time.sleep(5)
 
 
 def media_get_youtube_direct(url):
@@ -25,7 +45,7 @@ def media_get_youtube_direct(url):
 
     info(None, f"YouTube: Extracting YouTube link info for query '{url}'...")
     with YoutubeDL(get_ydl_opts()) as ydl:
-        yt_info = ydl.extract_info(url, download=False)
+        yt_info = extract_youtube_info(ydl, url)
 
         track_info = {"info": yt_info, "is_youtube": True}
         cache_youtube_info(url, url, yt_info)
@@ -47,7 +67,7 @@ def media_get_youtube_query(query):
 
     info(None, f"YouTube: Performing a YouTube search for query '{query}'...")
     with YoutubeDL(get_ydl_opts()) as ydl:
-        yt_info = ydl.extract_info(f"ytsearch:{query}", download=False)["entries"][0]
+        yt_info = extract_youtube_info(ydl, f"ytsearch:{query}")["entries"][0]
 
         track_info = {"info": yt_info, "is_youtube": True}
 
@@ -87,7 +107,7 @@ def media_get_youtube_playlist(url):
             }
 
             with YoutubeDL(ydl_opts) as ydl:
-                yt_info = ydl.extract_info(url, download=False)
+                yt_info = extract_youtube_info(ydl, url)
 
             page_entries = (yt_info or {}).get("entries") or []
             entries.extend(page_entries)
@@ -113,7 +133,7 @@ def media_search_youtube(query, limit=25):
             "noplaylist": True,
         }
     ) as ydl:
-        yt_info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
+        yt_info = extract_youtube_info(ydl, f"ytsearch{limit}:{query}")
         return [entry for entry in (yt_info or {}).get("entries") or [] if entry]
 
 
@@ -140,7 +160,7 @@ def download_and_cache_youtube_media(url):
         if get_cached_track_path(url) is not None:
             return
         with YoutubeDL(get_ydl_opts(url)) as ydl:
-            yt_info = ydl.extract_info(url, download=True)
+            yt_info = extract_youtube_info(ydl, url, download=True)
             cache_youtube_info(url, url, yt_info)
 
 
@@ -159,8 +179,8 @@ def precache_youtube_track(query):
             downloaded = True
         else:
             with YoutubeDL(get_ydl_opts()) as ydl:
-                yt_info = ydl.extract_info(
-                    query if is_url else f"ytsearch:{query}", download=False
+                yt_info = extract_youtube_info(
+                    ydl, query if is_url else f"ytsearch:{query}"
                 )
                 if not is_url:
                     yt_info = yt_info["entries"][0]
