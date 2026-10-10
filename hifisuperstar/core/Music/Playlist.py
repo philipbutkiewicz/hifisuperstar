@@ -5,6 +5,7 @@
 
 import json
 import os
+import random
 import tempfile
 
 from hifisuperstar.io.Logger import error
@@ -19,6 +20,10 @@ class Playlist:
         self.tracks = []
 
         self.current_index = 0
+
+        # Shuffle bookkeeping (track IDs): what already played in this round and the order it played in
+        self.shuffle_played = set()
+        self.shuffle_history = []
 
     def get_playlist_storage_path(self):
         guild_playlist_storage_path = os.path.join(
@@ -255,6 +260,58 @@ class Playlist:
     def clear(self):
         self.current_index = 0
         self.tracks.clear()
+        self.reset_shuffle()
+
+    def reset_shuffle(self):
+        self.shuffle_played.clear()
+        self.shuffle_history.clear()
+
+    def shuffle_next(self):
+        """Moves to a random track that has not played yet; returns None (index -1) once all have."""
+        if len(self.tracks) == 0:
+            return None
+
+        current = self.get_current_track()
+        if current is not None:
+            self.shuffle_played.add(current["id"])
+            self.shuffle_history.append(current["id"])
+            del self.shuffle_history[:-200]
+
+        candidates = [
+            index
+            for index, track in enumerate(self.tracks)
+            if track["id"] not in self.shuffle_played and index != self.current_index
+        ]
+        if not candidates:
+            self.current_index = -1
+            return None
+
+        self.current_index = random.choice(candidates)
+
+        return self.get_current_track()
+
+    def shuffle_prev(self):
+        """Goes back to the track that actually played before the current one."""
+        while self.shuffle_history:
+            track_id = self.shuffle_history.pop()
+            for index, track in enumerate(self.tracks):
+                if track["id"] == track_id:
+                    # The track we are leaving becomes unplayed again so it can come back later
+                    current = self.get_current_track()
+                    if current is not None:
+                        self.shuffle_played.discard(current["id"])
+                    self.current_index = index
+                    return track
+
+        return self.prev_track()
+
+    def remember_current(self):
+        """Records the current track as played (used when jumping around in shuffle mode)."""
+        current = self.get_current_track()
+        if current is not None:
+            self.shuffle_played.add(current["id"])
+            self.shuffle_history.append(current["id"])
+            del self.shuffle_history[:-200]
 
     def skip_track(self):
         if len(self.tracks) == 0:

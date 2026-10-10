@@ -204,7 +204,7 @@ requiring `/stop` first.
 Commands are grouped roughly by cog. Admin-only commands are noted.
 
 **Music**
-`/play`, `/search`, `/play_radio`, `/playlist`, `/list_playlists`, `/playlist_view`, `/playlist_save`, `/playlist_delete`, `/playlist_rename`, `/playlist_download`, `/playlist_downloads`, `/music_precache_queue`, `/stop`, `/skip`, `/prev`, `/jump_to_index`, `/queue`, `/top_tracks`, `/volume`, `/repeat`, `/repeat_all`
+`/play`, `/search`, `/play_radio`, `/playlist`, `/list_playlists`, `/playlist_view`, `/playlist_save`, `/playlist_delete`, `/playlist_rename`, `/playlist_download`, `/playlist_downloads`, `/music_precache_queue`, `/stop`, `/skip`, `/prev`, `/jump_to_index`, `/queue`, `/top_tracks`, `/volume`, `/repeat`, `/repeat_all`, `/shuffle`
 
 `/playlist_rename name:<current name> new_name:<new name>` renames a saved playlist
 in the current server, preserving its tracks and position in the saved-playlist

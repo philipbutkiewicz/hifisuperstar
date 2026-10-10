@@ -1795,15 +1795,14 @@ class MusicCog(commands.Cog):
                 interaction, "ERROR: Invalid format, not a float number"
             )
 
-        if volume < 0 or volume > 1:
+        if not 0 <= volume <= 1:
             warn(self, "Invalid input", interaction.guild)
             return await respond(
                 interaction, "ERROR: Invalid format, provide a value between 0 and 1.0"
             )
 
         if player.set_volume(volume):
-            warn(self, "Invalid input", interaction.guild)
-            return await respond(interaction, f"Volume is now set at {volume * 100}%")
+            return await respond(interaction, f"Volume is now set at {volume * 100:g}%")
 
         await respond(interaction, "ERROR: Failed setting volume")
 
@@ -1858,3 +1857,30 @@ class MusicCog(commands.Cog):
         repeat = player.set_repeat_all()
 
         await respond(interaction, f"Repeat is now {'on' if repeat else 'off'}")
+
+    @app_commands.command(
+        name="shuffle", description="Toggles shuffle mode on or off"
+    )
+    async def shuffle(self, interaction: discord.Interaction):
+        info(self, "Shuffle mode change request")
+
+        if not await check_server(interaction):
+            error(self, "Server verification failed")
+            return False
+
+        if not await Acl(interaction.guild.id).check_and_fail(
+            Rule.MUSIC_SET_SHUFFLE, interaction
+        ):
+            return False
+
+        info(self, "Toggling shuffle mode", interaction.guild)
+
+        player = await self.get_player(interaction)
+        if not player:
+            return await respond(
+                interaction, "ERROR: Failed to get the player for this Discord server"
+            )
+
+        shuffle = player.set_shuffle()
+
+        await respond(interaction, f"Shuffle is now {'on' if shuffle else 'off'}")

@@ -150,6 +150,13 @@ def create_music_tools(music_cog, message):
         _get_player().prev_track()
         return "Went back to the previous track."
 
+    def music_set_shuffle(enabled: bool) -> str:
+        """Turn shuffle mode on or off."""
+        if not _allowed(Rule.MUSIC_SET_SHUFFLE):
+            return denied
+        shuffle = _get_player().set_shuffle(enabled)
+        return f"Shuffle is now {'on' if shuffle else 'off'}."
+
     def music_get_queue() -> str:
         """Get the current music queue as a numbered list."""
         if not _allowed(Rule.MUSIC_QUEUE):
@@ -236,6 +243,11 @@ def create_music_tools(music_cog, message):
             func=music_prev,
             name="music_prev",
             description="Go back to the previous track.",
+        ),
+        StructuredTool.from_function(
+            func=music_set_shuffle,
+            name="music_set_shuffle",
+            description="Turn shuffle mode on (enabled=true) or off (enabled=false). While on, the queue plays in random order.",
         ),
         StructuredTool.from_function(
             func=music_get_queue,

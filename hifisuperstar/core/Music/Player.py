@@ -5,6 +5,7 @@
 
 import asyncio
 import os
+import random
 
 import discord
 import validators
@@ -14,8 +15,12 @@ from hifisuperstar.core.Music.PlayCounter import PlayCounter
 from hifisuperstar.core.Music.Playlist import Playlist
 from hifisuperstar.core.Server.Server import connect_voice
 from hifisuperstar.io.GuildConfig import get_guild_config
-from hifisuperstar.io.Logger import error, info
+from hifisuperstar.io.Logger import error, info, warn
+from hifisuperstar.io.Resources import load_resource, save_resource
 from hifisuperstar.io.Strings import str_hash_crc32
+
+
+DEFAULT_VOLUME = 0.02
 
 
 class Player:
@@ -23,7 +28,12 @@ class Player:
         self.interaction = interaction
         self.config = config
         self.music_config = get_guild_config(config, "MusicCog", interaction.guild.id)
-        self.options = {"volume": 0.02, "repeat": False, "repeat_all": False}
+        self.options = {
+            "volume": self._load_volume(),
+            "repeat": False,
+            "repeat_all": False,
+            "shuffle": False,
+        }
 
         self.play_counter = PlayCounter(self.interaction.guild.id)
         self.playlist = Playlist(self.interaction.guild.id)
@@ -41,6 +51,22 @@ class Player:
         self._next_track_task = None
         # Incremented by stop_track so background batch queueing can notice a stop
         self.stop_count = 0
+
+    def _load_volume(self):
+        """The volume last set in this guild, persisted so it survives restarts."""
+        saved = load_resource("music", self.interaction.guild.id).get("volume")
+        if isinstance(saved, (int, float)) and not isinstance(saved, bool):
+            return min(1.0, max(0.0, float(saved)))
+        return DEFAULT_VOLUME
+
+    def _save_volume(self):
+        guild_id = self.interaction.guild.id
+        settings = load_resource("music", guild_id)
+        settings["volume"] = self.options["volume"]
+        try:
+            save_resource("music", guild_id, settings)
+        except OSError as exc:
+            warn(self, f"Could not persist the volume: {exc}", self.interaction.guild)
 
     def get_play_counter(self):
         return self.play_counter
@@ -73,7 +99,10 @@ class Player:
 
         if not self.options["repeat"] and self.jump_to_index == -1:
             if not self.prev:
-                self.playlist.skip_track()
+                if self.options["shuffle"]:
+                    self.playlist.shuffle_next()
+                else:
+                    self.playlist.skip_track()
 
                 if self.playlist.get_current_track_index() == -1:
                     if not self.options["repeat_all"]:
@@ -81,13 +110,24 @@ class Player:
                             self.stop_track(), self.interaction.client.loop
                         )
                         return False
+                    elif self.options["shuffle"]:
+                        # Everything played once: start a fresh random round
+                        self.playlist.reset_shuffle()
+                        self.playlist.current_index = random.randrange(
+                            len(self.playlist.get_tracks())
+                        )
                     else:
                         self.playlist.jump_to(0)
             else:
-                self.playlist.prev_track()
+                if self.options["shuffle"]:
+                    self.playlist.shuffle_prev()
+                else:
+                    self.playlist.prev_track()
                 self.prev = False
         else:
             if self.jump_to_index > -1:
+                if self.options["shuffle"]:
+                    self.playlist.remember_current()
                 self.playlist.jump_to(self.jump_to_index)
                 self.jump_to_index = -1
 
@@ -540,22 +580,32 @@ class Player:
         await self.interaction.client.change_presence(activity=None)
 
     def set_volume(self, volume):
-        if self.stopped:
-            return False
+        self.options["volume"] = min(1.0, max(0.0, float(volume)))
+        self._save_volume()
 
+        # Applies to the track that is playing right now, later tracks pick the value up in play_track
         voice = self.interaction.guild.voice_client
-
-        self.options["volume"] = float(volume)
         if voice is not None and voice.source:
             voice.source.volume = self.options["volume"]
-        else:
-            return False
 
         return True
 
     def set_repeat(self):
         self.options["repeat"] = not self.options["repeat"]
         return self.options["repeat"]
+
+    def set_shuffle(self, enabled=None):
+        """Toggles shuffle (or sets it explicitly) and returns the new state."""
+        self.options["shuffle"] = (
+            not self.options["shuffle"] if enabled is None else bool(enabled)
+        )
+        # Start a fresh round; whatever is playing right now counts as played
+        self.playlist.reset_shuffle()
+        if self.options["shuffle"]:
+            current = self.playlist.get_current_track()
+            if current is not None:
+                self.playlist.shuffle_played.add(current["id"])
+        return self.options["shuffle"]
 
     def set_repeat_all(self):
         self.options["repeat_all"] = not self.options["repeat_all"]

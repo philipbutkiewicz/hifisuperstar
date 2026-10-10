@@ -171,6 +171,47 @@ class PlayerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.player.playlist.get_current_track_index(), 1)
         self.assertFalse(self.player.prev)
 
+    async def test_shuffle_plays_every_track_once_then_stops(self):
+        self.assertTrue(self.player.set_shuffle())
+        seen = [self.player.playlist.get_current_track()["id"]]
+        with (
+            patch.object(self.player, "_resume_playback", new=AsyncMock()),
+            patch.object(self.player, "stop_track", new=AsyncMock()) as stop,
+        ):
+            for _ in range(2):
+                self.player._after_track(None, self.player._playback_id)
+                await asyncio.sleep(0)
+                seen.append(self.player.playlist.get_current_track()["id"])
+            self.assertEqual(len(set(seen)), 3)
+            self.player._after_track(None, self.player._playback_id)
+            await asyncio.sleep(0.05)
+            stop.assert_awaited_once()
+
+    async def test_shuffle_repeat_all_starts_a_new_round(self):
+        self.player.set_shuffle()
+        self.player.options["repeat_all"] = True
+        with (
+            patch.object(self.player, "_resume_playback", new=AsyncMock()),
+            patch.object(self.player, "stop_track", new=AsyncMock()) as stop,
+        ):
+            for _ in range(10):
+                self.player._after_track(None, self.player._playback_id)
+                await asyncio.sleep(0)
+                self.assertIsNotNone(self.player.playlist.get_current_track())
+            stop.assert_not_awaited()
+
+    async def test_shuffle_prev_returns_to_the_track_that_played_before(self):
+        self.player.set_shuffle()
+        first = self.player.playlist.get_current_track()["id"]
+        with patch.object(self.player, "_resume_playback", new=AsyncMock()):
+            self.player._after_track(None, self.player._playback_id)
+            await asyncio.sleep(0)
+            self.assertNotEqual(self.player.playlist.get_current_track()["id"], first)
+            self.player.prev = True
+            self.player._after_track(None, self.player._playback_id)
+            await asyncio.sleep(0)
+        self.assertEqual(self.player.playlist.get_current_track()["id"], first)
+
     async def test_skip_clears_a_pending_prev(self):
         self.player.prev = True
         self.assertTrue(self.player.skip_track())
@@ -263,6 +304,34 @@ class LLMTests(TemporaryDirectoryCase):
             self.assertEqual(calls, ["x"])
 
         asyncio.run(run())
+
+
+class VolumeTests(TemporaryDirectoryCase):
+    def make_player(self, guild_id=11):
+        guild = SimpleNamespace(id=guild_id, name="Test", voice_client=None)
+        interaction = SimpleNamespace(guild=guild, client=SimpleNamespace())
+        with patch("hifisuperstar.core.Music.Player.PlayCounter"):
+            return Player(interaction, {"MusicCog": {"Allowed_Mime_Types": []}})
+
+    def test_volume_survives_a_restart_and_is_per_guild(self):
+        self.assertEqual(self.make_player().options["volume"], 0.02)
+        player = self.make_player()
+        self.assertTrue(player.set_volume(0.35))  # also works while nothing is playing
+        self.assertEqual(self.make_player().options["volume"], 0.35)
+        self.assertEqual(self.make_player(22).options["volume"], 0.02)
+
+    def test_invalid_saved_volume_falls_back_to_the_default(self):
+        save_resource("music", 11, {"volume": "loud"})
+        self.assertEqual(self.make_player().options["volume"], 0.02)
+        save_resource("music", 11, {"volume": 7})
+        self.assertEqual(self.make_player().options["volume"], 1.0)
+
+    def test_volume_applies_to_the_playing_source(self):
+        player = self.make_player()
+        source = SimpleNamespace(volume=0.02)
+        player.interaction.guild.voice_client = SimpleNamespace(source=source)
+        player.set_volume(0.5)
+        self.assertEqual(source.volume, 0.5)
 
 
 class WebTests(unittest.TestCase):
