@@ -3,6 +3,7 @@
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
+import logging
 import sys
 
 from loguru import logger
@@ -10,6 +11,17 @@ from loguru import logger
 _LOG_FORMAT = (
     "<green>{time:MM/DD/YYYY hh:mm:ss A}</green> [<level>{level}</level>] {message}"
 )
+
+
+class _DiscordLogHandler(logging.Handler):
+    """Forwards discord.py's own log records (voice close codes, reconnects) into the app log."""
+
+    def emit(self, record):
+        message = f"[{record.name}] {record.getMessage()}"
+        if record.exc_info:
+            logger.opt(exception=record.exc_info).log(record.levelname, message)
+        else:
+            logger.log(record.levelname, message)
 
 
 def log_init():
@@ -23,6 +35,11 @@ def log_init():
         rotation="10 MB",
         retention=5,
     )
+
+    discord_logger = logging.getLogger("discord")
+    if not any(isinstance(h, _DiscordLogHandler) for h in discord_logger.handlers):
+        discord_logger.addHandler(_DiscordLogHandler())
+    discord_logger.setLevel(logging.INFO)
 
 
 def build_message(module, message, guild=None):
