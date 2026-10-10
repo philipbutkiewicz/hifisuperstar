@@ -3,16 +3,21 @@
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
+import asyncio
+
 import discord
 from langchain_core.tools import StructuredTool
-
 
 from hifisuperstar.core.Acl import Rule
 from hifisuperstar.core.Acl.Acl import Acl
 from hifisuperstar.core.Music.Player import Player
 from hifisuperstar.core.Music.Playlist import Playlist
 from hifisuperstar.core.Server.Server import connect_voice
-from hifisuperstar.io.Logger import error
+from hifisuperstar.io.Logger import error, info
+
+_MAX_BATCH = 50
+_background_tasks = set()
+_batch_locks = {}
 
 
 class _MessageAdapter:
@@ -63,6 +68,64 @@ def create_music_tools(music_cog, message):
             return f"Failed to queue '{query}'."
         title = track_info["title"] if isinstance(track_info, dict) else query
         return f"Queued '{title}'."
+
+    async def music_play_many(queries: list[str]) -> str:
+        """Queue several songs in the background."""
+        if not _allowed(Rule.MUSIC_PLAY):
+            return denied
+        queries = [q.strip() for q in queries if isinstance(q, str) and q.strip()]
+        if not queries:
+            return "Failed: no songs were given."
+        queries = queries[:_MAX_BATCH]
+        if not await _join_voice(message):
+            return "Failed: could not join the user's voice channel."
+        player = _get_player()
+
+        # Looking up and caching every track takes a long time: queue them in the background
+        # and let the model answer right away.
+        task = asyncio.create_task(_queue_batch(player, queries))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+        return (
+            f"Started queueing {len(queries)} song(s) in the background; they will show up in the "
+            "queue as they are found (the first one starts playing as soon as it is ready). "
+            "Do not wait for them, just tell the user."
+        )
+
+    async def _queue_batch(player, queries):
+        lock = _batch_locks.setdefault(guild_id, asyncio.Lock())
+        stop_count = player.stop_count
+        failed = []
+        try:
+            async with lock:
+                for query in queries:
+                    if player.stop_count != stop_count:
+                        info(None, "Batch queueing cancelled by a stop", message.guild)
+                        return
+                    try:
+                        queued = await player.queue_track(query)
+                    except Exception as exc:
+                        error(None, f"Batch queue of '{query}' failed: {exc}", message.guild)
+                        queued = False
+                    if not queued:
+                        failed.append(query)
+        except Exception as exc:
+            error(None, f"Batch queueing crashed: {exc}", message.guild)
+            return
+
+        info(
+            None,
+            f"Batch queueing finished: {len(queries) - len(failed)}/{len(queries)} queued",
+            message.guild,
+        )
+        if failed:
+            try:
+                await message.channel.send(
+                    "Couldn't queue: " + "; ".join(failed[:10])[:1500],
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            except discord.HTTPException:
+                pass
 
     async def music_stop() -> str:
         """Stop music playback and clear the queue."""
@@ -148,7 +211,16 @@ def create_music_tools(music_cog, message):
         StructuredTool.from_function(
             coroutine=music_play,
             name="music_play",
-            description="Play a track or YouTube search query. Joins the user's current voice channel. Queues the track if something is already playing.",
+            description="Play or queue a song for the user. Use this whenever someone asks to play, queue, add or listen to music. "
+            "`query` is the song title and artist (e.g. 'Daft Punk - Get Lucky') or a YouTube URL. "
+            "Joins the user's current voice channel and queues the track if something is already playing.",
+        ),
+        StructuredTool.from_function(
+            coroutine=music_play_many,
+            name="music_play_many",
+            description="Queue several songs at once, in the background (returns immediately). Use this instead of repeated music_play calls when the user wants "
+            f"more than one song (up to {_MAX_BATCH}). `queries` is a list of 'Artist - Title' strings or YouTube URLs. "
+            "Joins the user's voice channel and starts playing if nothing is playing.",
         ),
         StructuredTool.from_function(
             coroutine=music_stop,

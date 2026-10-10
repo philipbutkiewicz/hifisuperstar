@@ -39,7 +39,28 @@ def _resolve_prompt(raw) -> str:
 
 
 _STATIC_TOOLS = [web_search, web_fetch]
-_MAX_TOOL_ROUNDS = 10
+_MAX_TOOL_ROUNDS = 12
+_MENTION_BY_NAME_RE = re.compile(r"<@([^0-9!&>][^>]*)>")
+_MUSIC_REQUEST_RE = re.compile(
+    r"\b(play|queue|enqueue|add|put on|listen|zagraj|pu[sś][cć]|w[łl][aą]cz|dodaj|odtw[oó]rz|"
+    r"piosenk\w*|utw[oó]r\w*|songs?|tracks?|music|muzyk\w*)\b",
+    re.IGNORECASE,
+)
+_MUSIC_TOOL_NAMES = {"music_play", "music_play_many"}
+
+
+def _fix_mentions(guild, text: str) -> str:
+    """Turns model-written <@display name> into a real mention, or plain @name when nobody matches."""
+
+    def replace(match):
+        name = match.group(1).strip().lstrip("@")
+        member = discord.utils.find(
+            lambda m: name.lower() in (m.display_name.lower(), m.name.lower()),
+            guild.members,
+        )
+        return f"<@{member.id}>" if member is not None else f"@{name}"
+
+    return _MENTION_BY_NAME_RE.sub(replace, text)
 
 
 class ModelsPageView(discord.ui.View):
@@ -245,7 +266,8 @@ class LLMCog(commands.Cog):
             response, direct_posts = await self.generate_response(
                 state,
                 message,
-                f"<@{message.author.display_name}> {message.content}",
+                # The ID is what makes a mention work, a display name in <@...> never resolves
+                f"{message.author.display_name} (mention: <@{message.author.id}>): {message.content}",
                 progress_callback=report_progress,
             )
 
@@ -499,9 +521,22 @@ class LLMCog(commands.Cog):
         tool_hint = (
             "You have access to the following tools: "
             + ", ".join(f"`{t.name}`" for t in tools)
-            + ". Use them whenever the user asks for something they can do "
+            + ". Mention users only as <@USER_ID> using the ID given with their message, never as <@name>. Use them whenever the user asks for something they can do "
             "(e.g. playing music, searching images). Do not refuse or say the tools are unavailable — just call them."
         )
+        if "music_play" in tools_by_name:
+            tool_hint += (
+                " You are also this server's music bot: you can play and queue songs in the user's "
+                "voice channel. Whenever a user asks to play, queue, add, put on or listen to a song, "
+                "artist, playlist or YouTube link, you MUST call `music_play` with the song title and "
+                "artist (or the URL) as the query. For several songs call `music_play_many` once with the whole "
+                "list instead of many separate calls. "
+                "Use `music_skip`, `music_prev`, `music_stop`, `music_get_queue` and `music_remove_track` "
+                "for the matching requests. NEVER say a song was played, queued or skipped unless you "
+                "actually called the tool and it reported success; if the tool fails, tell the user what "
+                "went wrong. Staying in character never means skipping the tool call. If you decide to "
+                "add songs, do it in the same turn: never end a message by only announcing that you will."
+            )
 
         lc_messages = [
             SystemMessage(content=state["sys_prompt"] + " " + tool_hint),
@@ -515,6 +550,8 @@ class LLMCog(commands.Cog):
         max_web_calls = state["max_web_search_calls"]
         web_call_count = 0
         tool_rounds = 0
+        music_tool_called = False
+        nudged = False
 
         try:
             while True:
@@ -532,11 +569,36 @@ class LLMCog(commands.Cog):
                     f"LLM response: tool_calls={response_msg.tool_calls} content_preview={str(response_msg.content)[:120]!r}",
                 )
 
+                metadata = getattr(response_msg, "response_metadata", None) or {}
+                info(
+                    self,
+                    f"LLM finish_reason={metadata.get('finish_reason')} usage={metadata.get('token_usage')}",
+                )
+
                 if not response_msg.tool_calls:
+                    # Some models announce an action ("now I'll queue those") and stop without calling the tool
+                    if (
+                        not nudged
+                        and not music_tool_called
+                        and "music_play" in tools_by_name
+                        and _MUSIC_REQUEST_RE.search(message_text)
+                    ):
+                        nudged = True
+                        info(self, "No music tool was called for a music request, nudging")
+                        lc_messages.append(
+                            HumanMessage(
+                                content="[automated reminder] You have not called any music tool yet. If the user asked "
+                                "you to play or queue music, call `music_play` or `music_play_many` now. If not, "
+                                "just answer normally."
+                            )
+                        )
+                        continue
                     break
 
                 for tc in response_msg.tool_calls:
                     info(self, f"Tool call: {tc['name']} args={tc['args']}")
+                    if tc["name"] in _MUSIC_TOOL_NAMES:
+                        music_tool_called = True
 
                     if tc["name"] in web_tool_names:
                         web_call_count += 1
@@ -592,6 +654,7 @@ class LLMCog(commands.Cog):
                 ":eggplant:", "<:621331184676503554:1419337041921179648>"
             )
             response_text = _TOKEN_STRIP_RE.sub("", response_text).strip()
+            response_text = _fix_mentions(message.guild, response_text)
 
             if not response_text:
                 return None, []

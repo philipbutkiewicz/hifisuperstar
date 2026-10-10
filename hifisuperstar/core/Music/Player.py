@@ -39,6 +39,8 @@ class Player:
         self._stream_url = None
         self._restart_audio = False
         self._next_track_task = None
+        # Incremented by stop_track so background batch queueing can notice a stop
+        self.stop_count = 0
 
     def get_play_counter(self):
         return self.play_counter
@@ -501,6 +503,7 @@ class Player:
         return True
 
     async def stop_track(self):
+        self.stop_count += 1
         self._playback_id += 1
         self.jump_to_index = -1
         self.prev = False

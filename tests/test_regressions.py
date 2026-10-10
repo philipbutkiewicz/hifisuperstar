@@ -201,11 +201,76 @@ class PlayerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(self.player._voice_task)
 
 
+class LLMTests(TemporaryDirectoryCase):
+    def test_name_mentions_are_resolved_to_user_ids(self):
+        from hifisuperstar.cogs.LLM.LLMCog import _fix_mentions
+
+        guild = SimpleNamespace(
+            members=[SimpleNamespace(id=42, display_name="bagno", name="bagnz0r")]
+        )
+        self.assertEqual(
+            _fix_mentions(guild, "hi <@bagno> and <@BAGNZ0R> and <@999> and <@ghost>"),
+            "hi <@42> and <@42> and <@999> and @ghost",
+        )
+
+    def test_music_play_many_returns_before_the_tracks_are_queued(self):
+        import hifisuperstar.cogs.LLM.Tools.MusicTool as music_tool
+
+        async def run():
+            gate = asyncio.Event()
+            calls = []
+
+            async def slow_queue(query):
+                await gate.wait()
+                calls.append(query)
+                return {"title": query} if query != "b" else False
+
+            player = MagicMock(stop_count=0)
+            player.queue_track = slow_queue
+            music = SimpleNamespace(players={"11": player}, config={})
+            channel = SimpleNamespace(send=AsyncMock())
+            message = SimpleNamespace(
+                guild=SimpleNamespace(id=11, name="Test"),
+                author=SimpleNamespace(id=1),
+                channel=channel,
+            )
+            tools = {t.name: t for t in music_tool.create_music_tools(music, message)}
+            join = patch.object(
+                music_tool, "_join_voice", new=AsyncMock(return_value=True)
+            )
+            join.start()
+            self.addCleanup(join.stop)
+            result = await tools["music_play_many"].ainvoke({"queries": ["a", "b", "c"]})
+            self.assertIn("Started queueing 3", result)
+            self.assertEqual(calls, [])  # nothing finished yet, yet we already answered
+            gate.set()
+            await asyncio.gather(*music_tool._background_tasks)
+            self.assertEqual(calls, ["a", "b", "c"])
+            self.assertIn("b", channel.send.await_args.args[0])
+
+            # A stop while the batch runs aborts the remaining songs
+            calls.clear()
+            player.stop_count = 0
+
+            async def stopping_queue(query):
+                calls.append(query)
+                player.stop_count += 1
+                return {"title": query}
+
+            player.queue_track = stopping_queue
+            await tools["music_play_many"].ainvoke({"queries": ["x", "y"]})
+            await asyncio.gather(*music_tool._background_tasks)
+            self.assertEqual(calls, ["x"])
+
+        asyncio.run(run())
+
+
 class WebTests(unittest.TestCase):
     def test_get_does_not_create_directories_and_base_path_is_absolute(self):
+        from flask import Flask
+
         from web.config import ProdConfig
         from web.controllers.PlaylistController import PlaylistController
-        from flask import Flask
 
         with tempfile.TemporaryDirectory() as directory:
             app = Flask(__name__, template_folder=os.path.abspath("web/templates"))
