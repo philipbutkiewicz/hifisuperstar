@@ -3,12 +3,16 @@
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
-import asyncio
-
+import discord
 from langchain_core.tools import StructuredTool
 
+
+from hifisuperstar.core.Acl import Rule
+from hifisuperstar.core.Acl.Acl import Acl
 from hifisuperstar.core.Music.Player import Player
 from hifisuperstar.core.Music.Playlist import Playlist
+from hifisuperstar.core.Server.Server import connect_voice
+from hifisuperstar.io.Logger import error
 
 
 class _MessageAdapter:
@@ -23,17 +27,22 @@ class _MessageAdapter:
 async def _join_voice(message) -> bool:
     if message.author.voice is None:
         return False
-    channel = message.author.voice.channel
-    if message.guild.voice_client is None:
-        await channel.connect()
-    else:
-        await message.guild.voice_client.move_to(channel)
-    return True
+    try:
+        voice = await connect_voice(message.author.voice.channel)
+    except (TimeoutError, discord.DiscordException, OSError) as exc:
+        error(None, f"Could not join voice for LLM music tool: {exc}", message.guild)
+        return False
+    return voice.is_connected()
 
 
 def create_music_tools(music_cog, message):
     """Return a list of StructuredTools that control the music player for the given message's guild."""
     guild_id = str(message.guild.id)
+    denied = "Failed: you are not permitted to do that."
+
+    def _allowed(rule) -> bool:
+        # The slash commands enforce the ACL; the LLM must not be a way around it
+        return Acl(message.guild.id).is_allowed(rule, message.author.id, True)
 
     def _get_player():
         if guild_id not in music_cog.players:
@@ -44,10 +53,12 @@ def create_music_tools(music_cog, message):
 
     async def music_play(query: str) -> str:
         """Play a track or YouTube search query in the user's current voice channel."""
+        if not _allowed(Rule.MUSIC_PLAY):
+            return denied
         if not await _join_voice(message):
-            return "Failed: user is not in a voice channel."
+            return "Failed: could not join the user's voice channel."
         player = _get_player()
-        track_info = await asyncio.to_thread(player.queue_track, query)
+        track_info = await player.queue_track(query)
         if not track_info:
             return f"Failed to queue '{query}'."
         title = track_info["title"] if isinstance(track_info, dict) else query
@@ -55,6 +66,8 @@ def create_music_tools(music_cog, message):
 
     async def music_stop() -> str:
         """Stop music playback and clear the queue."""
+        if not _allowed(Rule.MUSIC_STOP):
+            return denied
         player = _get_player()
         await player.stop_track()
         player.get_playlist().clear()
@@ -62,16 +75,22 @@ def create_music_tools(music_cog, message):
 
     def music_skip() -> str:
         """Skip the currently playing track."""
+        if not _allowed(Rule.MUSIC_SKIP):
+            return denied
         _get_player().skip_track()
         return "Skipped to the next track."
 
     def music_prev() -> str:
         """Go back to the previous track."""
+        if not _allowed(Rule.MUSIC_SKIP):
+            return denied
         _get_player().prev_track()
         return "Went back to the previous track."
 
     def music_get_queue() -> str:
         """Get the current music queue as a numbered list."""
+        if not _allowed(Rule.MUSIC_QUEUE):
+            return denied
         if guild_id not in music_cog.players:
             return "Nothing is in the queue."
         player = music_cog.players[guild_id]
@@ -87,6 +106,8 @@ def create_music_tools(music_cog, message):
 
     def music_remove_track(index: int) -> str:
         """Remove a track from the queue by its 1-based index (see music_get_queue). Cannot remove the currently playing track."""
+        if not _allowed(Rule.MUSIC_QUEUE_REMOVE):
+            return denied
         if guild_id not in music_cog.players:
             return "Nothing is in the queue."
         player = music_cog.players[guild_id]
@@ -103,6 +124,8 @@ def create_music_tools(music_cog, message):
 
     def music_list_playlists() -> str:
         """List the names of playlists saved for this server (separate from the current live queue)."""
+        if not _allowed(Rule.MUSIC_PLAYLIST_LIST):
+            return denied
         names = Playlist(message.guild.id).get_available_playlists()
         if not names:
             return "No saved playlists."
@@ -110,6 +133,8 @@ def create_music_tools(music_cog, message):
 
     def music_view_playlist(name: str) -> str:
         """View the tracks in a saved playlist by name (see music_list_playlists). Does not play it."""
+        if not _allowed(Rule.MUSIC_PLAYLIST_LIST):
+            return denied
         playlist = Playlist(message.guild.id, name)
         if not playlist.load_from_storage():
             return f"Failed: playlist '{name}' not found."

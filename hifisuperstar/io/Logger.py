@@ -15,7 +15,14 @@ _LOG_FORMAT = (
 def log_init():
     logger.remove()
     logger.add(sys.stdout, level="INFO", format=_LOG_FORMAT, colorize=True)
-    logger.add("app.log", level="INFO", format=_LOG_FORMAT, encoding="utf-8")
+    logger.add(
+        "app.log",
+        level="INFO",
+        format=_LOG_FORMAT,
+        encoding="utf-8",
+        rotation="10 MB",
+        retention=5,
+    )
 
 
 def build_message(module, message, guild=None):

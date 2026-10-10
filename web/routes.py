@@ -12,6 +12,6 @@ home_bp.route("/", methods=["GET"])(HomeController().index)
 
 playlists_bp = Blueprint("playlists", __name__)
 playlists_bp.route("/playlists/<guild_id>", methods=["GET"])(PlaylistController().list)
-playlists_bp.route("/playlists/<guild_id>/<name>", methods=["GET"])(
+playlists_bp.route("/playlists/<guild_id>/<path:name>", methods=["GET"])(
     PlaylistController().show
 )

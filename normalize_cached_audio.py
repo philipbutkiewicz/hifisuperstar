@@ -2,11 +2,8 @@ import glob
 import os
 import re
 import subprocess
-import sys
 
-if not os.path.exists("normalized"):
-    os.mkdir("normalized")
-    os.mkdir(os.path.join("normalized", "cache"))
+os.makedirs(os.path.join("normalized", "cache"), exist_ok=True)
 
 audio_files = glob.glob("cache/*.m4a")
 for audio_file in audio_files:
@@ -33,14 +30,17 @@ for audio_file in audio_files:
         matches = re.search(r"max_volume\: (.*) dB", probe.stderr)
         if not matches:
             print(f"Failed to get volume info for {audio_file}")
-            sys.exit()
+            continue
         max_db = float(matches[1])
 
         print(
             f'Track "{audio_file}" has max volume of {max_db} dB - normalization value will be {abs(max_db)} dB'
         )
 
-        subprocess.call(
+        # Write to a temporary file first: the bot prefers normalized files and must never see a partial one
+        output_path = os.path.join("normalized", audio_file)
+        temporary_path = f"{output_path}.tmp.m4a"
+        result = subprocess.call(
             [
                 "ffmpeg",
                 "-y",
@@ -50,8 +50,14 @@ for audio_file in audio_files:
                 f"volume={abs(max_db)}dB",
                 "-b:a",
                 "256k",
-                f"normalized/{audio_file}",
+                temporary_path,
             ]
         )
+        if result == 0:
+            os.replace(temporary_path, output_path)
+        else:
+            print(f"Failed to normalize {audio_file}")
+            if os.path.exists(temporary_path):
+                os.remove(temporary_path)
     else:
         print(f'Cached audio file "{audio_file}" is already normalized.')

@@ -18,14 +18,16 @@ class PlayCounter:
         self.counts = {}
 
     def count_playback(self, track):
-        if not track["id"] in self.counts:
-            self.counts[track["id"]] = {
+        # Track IDs are random per queue entry, the URL identifies the actual song
+        key = track.get("url") or track["id"]
+        if key not in self.counts:
+            self.counts[key] = {
                 "url": track["url"],
                 "title": track["title"],
                 "count": 0,
             }
 
-        self.counts[track["id"]]["count"] += 1
+        self.counts[key]["count"] += 1
         self.save_counts()
 
     def get_all_counts(self):

@@ -45,7 +45,16 @@ class Client:
             playlist = Playlist(interaction.guild.id)
             playlist.set_name(f"Spotify - {spotify_playlist['name']}")
 
-            for spotify_track in spotify_playlist["tracks"]["items"]:
+            items = list(spotify_playlist["tracks"]["items"])
+            page = spotify_playlist["tracks"]
+            # The API returns playlists in pages of 100 tracks
+            while page.get("next"):
+                page = spotify.next(page)
+                items.extend(page["items"])
+
+            for spotify_track in items:
+                if not spotify_track.get("track"):
+                    continue
                 track_str = f"{', '.join(spotify_artist['name'] for spotify_artist in spotify_track['track']['artists'])} - {spotify_track['track']['name']}"
                 playlist.add_track(track_str, track_str)
 

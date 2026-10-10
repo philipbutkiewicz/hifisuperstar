@@ -33,6 +33,24 @@ async def respond(interaction: discord.Interaction, content=None, **kwargs):
         await interaction.followup.send(content, **kwargs)
 
 
+async def respond_or_send(interaction: discord.Interaction, content=None, **kwargs):
+    """Like respond(), but falls back to a plain channel message once the interaction token has expired
+    (long-running commands outlive the 15 minute followup window)."""
+    try:
+        return await respond(interaction, content, **kwargs)
+    except discord.HTTPException as exc:
+        error(None, f"Interaction response failed ({exc}), using channel message")
+        if interaction.channel is None:
+            return None
+        kwargs.pop("ephemeral", None)
+        return await interaction.channel.send(content, **kwargs)
+
+
+async def defer(interaction: discord.Interaction):
+    if not interaction.response.is_done():
+        await interaction.response.defer()
+
+
 async def check_server(interaction: discord.Interaction):
     if interaction.guild is None:
         await respond(
@@ -51,6 +69,19 @@ async def join_voice(interaction: discord.Interaction):
         return False
 
     channel = interaction.user.voice.channel
+    current = interaction.guild.voice_client
+    if (
+        current is not None
+        and current.is_connected()
+        and current.channel != channel
+        and (current.is_playing() or current.is_paused())
+    ):
+        await respond(
+            interaction,
+            "ERROR: I'm already playing music in another voice channel.",
+        )
+        return False
+
     try:
         voice = await connect_voice(channel)
         if not voice.is_connected():

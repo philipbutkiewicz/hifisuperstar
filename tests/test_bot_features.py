@@ -110,7 +110,9 @@ class BotFeatureTests(unittest.TestCase):
 
         track = {"id": "song", "url": "https://example.com/song", "title": "Song"}
         PlayCounter(11).count_playback(track)
-        self.assertEqual(PlayCounter(11).get_all_counts()["song"]["count"], 1)
+        self.assertEqual(PlayCounter(11).get_all_counts()[track["url"]]["count"], 1)
+        PlayCounter(11).count_playback({**track, "id": "other-queue-entry"})
+        self.assertEqual(PlayCounter(11).get_all_counts()[track["url"]]["count"], 2)
         self.assertEqual(PlayCounter(22).get_all_counts(), {})
 
         playlist = Playlist(11, "Favorites")
@@ -244,7 +246,9 @@ class BotFeatureTests(unittest.TestCase):
         first_player.get_playlist.return_value = first_playlist
         music = SimpleNamespace(players={"11": first_player}, config={})
         for guild_id, expected in ((11, "First"), (22, "Nothing is in the queue")):
-            message = SimpleNamespace(guild=SimpleNamespace(id=guild_id))
+            message = SimpleNamespace(
+                guild=SimpleNamespace(id=guild_id), author=SimpleNamespace(id=1)
+            )
             tools = {tool.name: tool for tool in create_music_tools(music, message)}
             self.assertIn(expected, tools["music_get_queue"].invoke({}))
 

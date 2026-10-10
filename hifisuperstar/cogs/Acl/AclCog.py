@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from hifisuperstar.core.Acl.Acl import Acl
+from hifisuperstar.core.Acl.Acl import Acl, get_valid_rules, normalize_allowed
 from hifisuperstar.core.Server.Server import check_server, respond
 from hifisuperstar.io.Logger import error, info
 
@@ -36,6 +36,18 @@ class AclCog(commands.Cog):
         if not user or not user.id:
             error(self, f"Unable to find user {user}", interaction.guild)
             return await respond(interaction, "User not found.")
+
+        valid_rules = get_valid_rules()
+        if rule not in valid_rules:
+            return await respond(
+                interaction, f"Unknown rule. Valid rules: {', '.join(valid_rules)}"
+            )
+
+        allowed = normalize_allowed(allowed)
+        if allowed is None:
+            return await respond(
+                interaction, "Invalid value, use 1/0 (or true/false, yes/no)."
+            )
 
         info(self, f"Setting rule {rule} for {user.id}", interaction.guild)
 

@@ -21,13 +21,34 @@ _download_locks = {}
 _download_locks_guard = threading.Lock()
 
 
+# Retrying these never helps and each retry stalls the caller for 5 seconds
+_PERMANENT_ERROR_MARKERS = (
+    "private video",
+    "video unavailable",
+    "this video is not available",
+    "has been removed",
+    "account associated with this video has been terminated",
+    "members-only",
+    "confirm your age",
+    "age-restricted",
+    "copyright",
+    "is not a valid url",
+    "unsupported url",
+)
+
+
+def is_permanent_youtube_error(exc):
+    message = str(exc).lower()
+    return any(marker in message for marker in _PERMANENT_ERROR_MARKERS)
+
+
 def extract_youtube_info(ydl, query, *, download=False):
     retries = 0
     while True:
         try:
             return ydl.extract_info(query, download=download)
         except (DownloadError, TransportError, TimeoutError, ConnectionError) as exc:
-            if retries == 3:
+            if retries == 3 or is_permanent_youtube_error(exc):
                 raise
             retries += 1
             warn(
@@ -139,7 +160,9 @@ def media_search_youtube(query, limit=25):
 
 def download_youtube_media(url):
     info(None, f"YouTube: Starting cache download thread for '{url}'...")
-    thread = threading.Thread(target=download_youtube_media_thread, args=(url,))
+    thread = threading.Thread(
+        target=download_youtube_media_thread, args=(url,), daemon=True
+    )
     thread.start()
 
 
@@ -198,11 +221,15 @@ def precache_youtube_track(query):
 
 def get_best_audio_url(yt_info):
     best_format = None
-    for format in yt_info["formats"]:
+    for format in yt_info.get("formats") or []:
         if (
-            format["resolution"] == "audio only"
-            and format["ext"] == "m4a"
-            and (best_format == None or best_format["quality"] < format["quality"])
+            format.get("resolution") == "audio only"
+            and format.get("ext") == "m4a"
+            and format.get("url")
+            and (
+                best_format is None
+                or (best_format.get("quality") or 0) < (format.get("quality") or 0)
+            )
         ):
             best_format = format
 
@@ -226,7 +253,7 @@ def canonical_youtube_url(url):
     video_id = None
     if host == "youtu.be":
         video_id = parsed.path.strip("/").split("/")[0]
-    elif host in ("youtube.com", "www.youtube.com", "m.youtube.com"):
+    elif host in ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"):
         if parsed.path == "/watch":
             video_id = parse_qs(parsed.query).get("v", [None])[0]
         elif parsed.path.startswith(("/shorts/", "/embed/", "/live/")):
@@ -337,9 +364,6 @@ def get_ydl_opts(query=None):
     normalized_path = os.path.join("normalized", cache_tpl)
     if os.path.exists(f"{normalized_path}.m4a"):
         cache_tpl = normalized_path
-        warn(None, f'Normalized file in "{normalized_path}" does exist!')
-    else:
-        warn(None, f'Normalized file in "{normalized_path}" does not exist!')
     return {
         **get_youtube_opts(),
         "format": "m4a/bestaudio/best",

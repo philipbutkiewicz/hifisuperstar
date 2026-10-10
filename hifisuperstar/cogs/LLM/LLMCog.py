@@ -39,6 +39,7 @@ def _resolve_prompt(raw) -> str:
 
 
 _STATIC_TOOLS = [web_search, web_fetch]
+_MAX_TOOL_ROUNDS = 10
 
 
 class ModelsPageView(discord.ui.View):
@@ -153,7 +154,8 @@ class LLMCog(commands.Cog):
             "sys_prompt": _resolve_prompt(
                 settings.get("Sys_Prompt") or _DEFAULT_SYS_PROMPT
             ),
-            "conversation_history": [],
+            # Keyed by channel ID so conversations in different channels never mix
+            "conversation_history": {},
             "model": settings["OpenAI_API_Model"],
             "max_tokens": settings["Max_Tokens"],
             "reasoning_effort": settings.get("Reasoning_Effort", "none"),
@@ -194,7 +196,7 @@ class LLMCog(commands.Cog):
             "max_tokens": state["max_tokens"],
             "api_key": settings["OpenAI_API_Key"],
             "base_url": settings["OpenAI_API_URL"],
-            "timeout": None,
+            "timeout": 120,
         }
         reasoning_effort = state["reasoning_effort"]
         if reasoning_effort and reasoning_effort != "none":
@@ -227,6 +229,10 @@ class LLMCog(commands.Cog):
         ):
             return
 
+        # Model output is untrusted: it may mention users but never @everyone or roles
+        no_mentions = discord.AllowedMentions(
+            everyone=False, roles=False, users=True, replied_user=True
+        )
         async with message.channel.typing():
             placeholder = await message.channel.send("🤔 Thinking...", reference=message)
 
@@ -246,18 +252,18 @@ class LLMCog(commands.Cog):
         if response:
             chunks = [response[i : i + 1900] for i in range(0, len(response), 1900)]
             try:
-                await placeholder.edit(content=chunks[0])
+                await placeholder.edit(content=chunks[0], allowed_mentions=no_mentions)
             except discord.HTTPException:
-                await message.channel.send(chunks[0])
+                await message.channel.send(chunks[0], allowed_mentions=no_mentions)
             for chunk in chunks[1:]:
-                await message.channel.send(chunk)
+                await message.channel.send(chunk, allowed_mentions=no_mentions)
         else:
             try:
                 await placeholder.delete()
             except discord.HTTPException:
                 pass
         for post in direct_posts:
-            await message.channel.send(post)
+            await message.channel.send(post, allowed_mentions=no_mentions)
 
     @app_commands.command(
         name="llm_set_channel",
@@ -298,7 +304,7 @@ class LLMCog(commands.Cog):
         state = self._get_state(interaction.guild.id)
         state["enabled"] = not state["enabled"]
         if not state["enabled"]:
-            state["conversation_history"] = []
+            state["conversation_history"] = {}
 
         self._save_state(interaction.guild.id)
         await respond(
@@ -323,8 +329,9 @@ class LLMCog(commands.Cog):
         if not await check_server(interaction):
             return
 
-        self._get_state(interaction.guild.id)["conversation_history"] = []
-        await respond(interaction, "LLM conversation context cleared!")
+        history = self._get_state(interaction.guild.id)["conversation_history"]
+        history.pop(interaction.channel_id, None)
+        await respond(interaction, "LLM conversation context cleared for this channel!")
 
     @app_commands.command(
         name="llm_toggle_mode",
@@ -348,7 +355,7 @@ class LLMCog(commands.Cog):
                 settings.get("Sys_Prompt") or _DEFAULT_SYS_PROMPT
             )
 
-        state["conversation_history"] = []
+        state["conversation_history"] = {}
         self._save_state(interaction.guild.id)
         await respond(
             interaction,
@@ -471,8 +478,9 @@ class LLMCog(commands.Cog):
             except Exception as exc:
                 error(self, f"Progress callback failed: {exc}")
 
-        if len(state["conversation_history"]) > 64:
-            state["conversation_history"] = state["conversation_history"][-64:]
+        history = state["conversation_history"].setdefault(message.channel.id, [])
+        if len(history) > 64:
+            history[:] = history[-64:]
 
         tools = list(_STATIC_TOOLS)
         image_settings = get_guild_config(self.config, "ImageSearchCog", message.guild.id)
@@ -497,7 +505,7 @@ class LLMCog(commands.Cog):
 
         lc_messages = [
             SystemMessage(content=state["sys_prompt"] + " " + tool_hint),
-            *state["conversation_history"],
+            *history,
             HumanMessage(content=message_text),
         ]
 
@@ -506,9 +514,16 @@ class LLMCog(commands.Cog):
         web_tool_names = {"web_search", "web_fetch"}
         max_web_calls = state["max_web_search_calls"]
         web_call_count = 0
+        tool_rounds = 0
 
         try:
             while True:
+                if tool_rounds >= _MAX_TOOL_ROUNDS:
+                    # The model keeps calling tools: force a final answer without them
+                    response_msg = await llm.ainvoke(lc_messages)
+                    lc_messages.append(response_msg)
+                    break
+                tool_rounds += 1
                 response_msg = await llm_with_tools.ainvoke(lc_messages)
                 lc_messages.append(response_msg)
 
@@ -556,7 +571,9 @@ class LLMCog(commands.Cog):
                     if tc["name"] == "search_images":
                         for line in str(tool_result).splitlines():
                             if ": http" in line:
-                                direct_posts.append(line.split(": ", 1)[1])
+                                direct_posts.append(
+                                    "http" + line.rsplit(": http", 1)[1]
+                                )
 
                     if tc["name"] == "web_fetch" and not str(tool_result).startswith(
                         "Failed to fetch"
@@ -585,7 +602,7 @@ class LLMCog(commands.Cog):
                 )
                 response_text = f"{response_text}\n{sources_line}"
 
-            state["conversation_history"] += [
+            history += [
                 HumanMessage(content=message_text),
                 AIMessage(content=response_text),
             ]
@@ -593,4 +610,4 @@ class LLMCog(commands.Cog):
             return response_text, direct_posts
         except Exception as e:
             error(self, f"Failed to generate LLM response: {e}")
-            return None, []
+            return "Sorry, something went wrong while generating a reply.", []

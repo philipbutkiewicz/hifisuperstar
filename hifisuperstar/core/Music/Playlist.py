@@ -7,7 +7,8 @@ import json
 import os
 import tempfile
 
-from hifisuperstar.io.Logger import error, warn
+from hifisuperstar.io.Logger import error
+from hifisuperstar.io.Resources import read_json_safe, write_json_atomic
 from hifisuperstar.io.Strings import str_hash_sha256, str_rand_crc32
 
 
@@ -20,13 +21,10 @@ class Playlist:
         self.current_index = 0
 
     def get_playlist_storage_path(self):
-        playlist_storage_path = os.path.join("storage", "playlists")
-        if not os.path.exists(playlist_storage_path):
-            os.mkdir(playlist_storage_path)
-
-        guild_playlist_storage_path = os.path.join(playlist_storage_path, self.guild_id)
-        if not os.path.exists(guild_playlist_storage_path):
-            os.mkdir(guild_playlist_storage_path)
+        guild_playlist_storage_path = os.path.join(
+            "storage", "playlists", self.guild_id
+        )
+        os.makedirs(guild_playlist_storage_path, exist_ok=True)
 
         return guild_playlist_storage_path
 
@@ -37,11 +35,9 @@ class Playlist:
 
     def get_available_playlists(self):
         list_path = os.path.join(self.get_playlist_storage_path(), "list.json")
-        if os.path.exists(list_path):
-            with open(list_path, encoding="utf-8") as f:
-                return json.loads(f.read())
+        available_playlists = read_json_safe(list_path, [])
 
-        return []
+        return available_playlists if isinstance(available_playlists, list) else []
 
     def load_from_storage(self):
         playlist_path = self.get_playlist_path()
@@ -49,9 +45,8 @@ class Playlist:
         if not os.path.exists(playlist_path):
             return False
 
-        with open(playlist_path, encoding="utf-8") as f:
-            playlist = json.loads(f.read())
-        if not playlist:
+        playlist = read_json_safe(playlist_path)
+        if not playlist or not isinstance(playlist, dict):
             return False
 
         if (
@@ -77,16 +72,15 @@ class Playlist:
             return False
 
         try:
-            with open(playlist_path, "w") as outfile:
-                json.dump(
-                    {
-                        "name": self.name,
-                        "guild_id": self.guild_id,
-                        "tracks": self.tracks,
-                    },
-                    outfile,
-                )
-        except:
+            write_json_atomic(
+                playlist_path,
+                {
+                    "name": self.name,
+                    "guild_id": self.guild_id,
+                    "tracks": self.tracks,
+                },
+            )
+        except (OSError, TypeError, ValueError):
             error(self, f"Failed saving the playlist to {playlist_path}")
             return False
 
@@ -181,13 +175,19 @@ class Playlist:
             )
             return False
 
-        os.remove(self.get_playlist_path())
-
+        # Cached playlists (e.g. imported YouTube ones) are not part of the index
         available_playlists = self.get_available_playlists()
-        available_playlists.remove(self.name)
+        if self.name in available_playlists:
+            available_playlists.remove(self.name)
+            if not self.save_available_playlists(available_playlists):
+                error(self, f"Failed removing {self.name} from the playlist index")
+                return False
 
-        if not self.save_available_playlists(available_playlists):
-            warn(self, f"Playlist {self.name} was only partially deleted!")
+        try:
+            os.remove(self.get_playlist_path())
+        except OSError as exc:
+            error(self, f"Failed deleting playlist {self.name}: {exc}")
+            return False
 
         return True
 

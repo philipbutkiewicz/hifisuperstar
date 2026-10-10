@@ -17,6 +17,19 @@ from hifisuperstar.io.Logger import error, info
 
 
 # TODO: M3U playlists
+_YOUTUBE_DOMAINS = {
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "music.youtube.com",
+    "youtu.be",
+}
+
+
+def is_youtube_domain(url):
+    return (urlparse(url).hostname or "").lower() in _YOUTUBE_DOMAINS
+
+
 def media_get_playlist(url):
     info(None, f"Media: Fetching YouTube playlist '{url}'...")
 
@@ -24,8 +37,7 @@ def media_get_playlist(url):
         error(None, "Media: Invalid URL!")
         return False
 
-    domain = urlparse(url.lower().replace("www.", "")).netloc
-    if domain != "youtube.com" and domain != "youtu.be":
+    if not is_youtube_domain(url):
         error(None, "Media: Invalid domain!")
         return False
 
@@ -41,8 +53,7 @@ def media_get_playlist(url):
 
 def media_get_source(query, allowed_mime_types=None):
     if validators.url(query):
-        domain = urlparse(query.lower().replace("www.", "")).netloc
-        if domain == "youtube.com" or domain == "youtu.be":
+        if is_youtube_domain(query):
             return media_get_youtube_direct(query)
         else:
             return media_get_direct(query, allowed_mime_types)

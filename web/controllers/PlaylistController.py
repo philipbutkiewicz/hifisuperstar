@@ -13,30 +13,35 @@ from flask import current_app, render_template
 
 class PlaylistController:
     def list(self, guild_id):
-        if not re.match("^[0-9]+$", guild_id):
+        if not re.fullmatch("[0-9]+", guild_id):
             return render_template(
                 "error.html", error="Invalid guild ID.", code=400
             ), 400
         if not os.path.exists(self.get_playlist_storage_path(guild_id)):
             return render_template(
                 "error.html", error="This guild has no playlists.", code=404
-            )
+            ), 404
 
         list_path = os.path.join(self.get_playlist_storage_path(guild_id), "list.json")
         if not os.path.exists(list_path):
             return render_template(
                 "error.html", error="This guild has no playlists.", code=404
-            )
+            ), 404
 
-        with open(list_path) as listfile:
-            playlists = json.loads(listfile.read())
+        try:
+            with open(list_path, encoding="utf-8") as listfile:
+                playlists = json.loads(listfile.read())
+        except (OSError, ValueError):
+            return render_template(
+                "error.html", error="The playlists could not be read.", code=500
+            ), 500
 
         return render_template(
             "playlists/list.html", playlists=playlists, guild_id=guild_id
         )
 
     def show(self, guild_id, name):
-        if not re.match("^[0-9]+$", guild_id):
+        if not re.fullmatch("[0-9]+", guild_id):
             return render_template(
                 "error.html", error="Invalid guild ID.", code=400
             ), 400
@@ -64,10 +69,13 @@ class PlaylistController:
         if not os.path.exists(playlist_path):
             return None
 
-        with open(playlist_path, encoding="utf-8") as f:
-            playlist = json.loads(f.read())
+        try:
+            with open(playlist_path, encoding="utf-8") as f:
+                playlist = json.loads(f.read())
+        except (OSError, ValueError):
+            return None
 
-        if not playlist:
+        if not playlist or not isinstance(playlist, dict):
             return None
 
         if (
@@ -84,17 +92,10 @@ class PlaylistController:
 
     @staticmethod
     def get_playlist_storage_path(guild_id):
-        playlist_storage_path = os.path.join(
-            os.path.join(current_app.config["BASE_APP_PATH"], "storage"), "playlists"
+        # Read-only: a GET request must never create directories on disk
+        return os.path.join(
+            current_app.config["BASE_APP_PATH"], "storage", "playlists", guild_id
         )
-        if not os.path.exists(playlist_storage_path):
-            os.mkdir(playlist_storage_path)
-
-        guild_playlist_storage_path = os.path.join(playlist_storage_path, guild_id)
-        if not os.path.exists(guild_playlist_storage_path):
-            os.mkdir(guild_playlist_storage_path)
-
-        return guild_playlist_storage_path
 
     def get_playlist_path(self, name, guild_id):
         return os.path.join(

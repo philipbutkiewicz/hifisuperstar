@@ -49,6 +49,11 @@ async def on_reaction_add(reaction, member):
 
 
 @client.event
+async def on_raw_reaction_add(payload):
+    await Events.run_event("on_raw_reaction_add", payload=payload)
+
+
+@client.event
 async def on_message(message):
     await Events.run_event("on_message", message=message)
 

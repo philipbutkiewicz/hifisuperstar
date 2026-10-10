@@ -43,7 +43,12 @@ class RegexCog(commands.Cog):
 
         responses = self.get_responses(message.guild.id)
         for key in responses:
-            if re.match(responses[key]["match"], message.content):
+            try:
+                matched = re.match(responses[key]["match"], message.content)
+            except re.error as exc:
+                error(self, f"Stored regex '{key}' is invalid: {exc}")
+                continue
+            if matched:
                 info(self, f"Message response match {responses[key]}")
                 await message.channel.send(
                     responses[key]["response"], reference=message
@@ -62,9 +67,11 @@ class RegexCog(commands.Cog):
             error(self, "Server verification failed")
             return False
 
-        if not re.compile(match):
-            error(self, f"Failed to compile regex '{match}'")
-            return await respond(interaction, "Invalid regular expression.")
+        try:
+            re.compile(match)
+        except re.error as exc:
+            error(self, f"Failed to compile regex '{match}': {exc}")
+            return await respond(interaction, f"Invalid regular expression: {exc}")
 
         responses = self.get_responses(interaction.guild.id)
         responses[str_rand_crc32()] = {"match": match, "response": response}

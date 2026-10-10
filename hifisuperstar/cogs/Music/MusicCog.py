@@ -9,7 +9,6 @@ import os
 import re
 import threading
 import time
-from urllib.parse import urlparse
 from zipfile import ZipFile
 
 import boto3
@@ -31,9 +30,16 @@ from hifisuperstar.core.Music.MediaSourceProcessing.YouTube import (
     media_search_youtube,
     precache_youtube_track,
 )
+from hifisuperstar.core.Music.Media import is_youtube_domain
 from hifisuperstar.core.Music.Player import Player
 from hifisuperstar.core.Music.Playlist import Playlist
-from hifisuperstar.core.Server.Server import check_server, join_voice, respond
+from hifisuperstar.core.Server.Server import (
+    check_server,
+    defer,
+    join_voice,
+    respond,
+    respond_or_send,
+)
 from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error, info, warn
 from hifisuperstar.io.Strings import allowed_chars_regex
@@ -79,8 +85,31 @@ def resolve_track_cache_url(track_url: str) -> str:
 
 
 def is_youtube_url(url: str) -> bool:
-    domain = urlparse(url.lower().replace("www.", "")).netloc
-    return domain in ("youtube.com", "youtu.be")
+    return is_youtube_domain(url)
+
+
+def format_track_label(title, url=None, max_title_length=80) -> str:
+    title = str(title if title is not None else "Unknown")
+    if len(title) > max_title_length:
+        title = title[: max_title_length - 1] + "…"
+    # Square brackets would break the markdown link
+    title = title.replace("[", "(").replace("]", ")")
+    if url and str(url).startswith(("http://", "https://")):
+        return f"[{title}]({url})"
+    return title
+
+
+def fit_description(lines, limit=4000) -> str:
+    """Joins lines for an embed description without going over Discord's size limit."""
+    result = []
+    size = 0
+    for index, line in enumerate(lines):
+        if size + len(line) + 1 > limit:
+            result.append(f"… and {len(lines) - index} more")
+            break
+        result.append(line)
+        size += len(line) + 1
+    return "\n".join(result)
 
 
 def format_duration(seconds) -> str:
@@ -187,14 +216,12 @@ class PlaylistPageView(discord.ui.View):
 
         lines = []
         for i in range(start, end):
-            title = tracks[i]["title"]
-            url = tracks[i].get("url")
-            track_label = f"[{title}]({url})" if url else title
+            track_label = format_track_label(tracks[i]["title"], tracks[i].get("url"))
             lines.append(f"`{i + 1}.` {track_label}")
 
         embed = discord.Embed(
             title=f"Playlist: {self.playlist.get_name()}",
-            description="\n".join(lines) if lines else "This playlist is empty.",
+            description=fit_description(lines) if lines else "This playlist is empty.",
             color=discord.Color.blurple(),
         )
         embed.set_footer(
@@ -424,6 +451,10 @@ class QueuePageView(discord.ui.View):
         self.add_item(select)
 
     async def _on_select(self, interaction: discord.Interaction):
+        if not await Acl(interaction.guild.id).check_and_fail(
+            Rule.MUSIC_SKIP, interaction
+        ):
+            return
         index = int(interaction.data["values"][0])
         self.player.skip_track_to_index(index)
         self._build_select()
@@ -445,15 +476,15 @@ class QueuePageView(discord.ui.View):
             is_current = (
                 current_track is not None and current_track["id"] == track["id"]
             )
-            title = track["title"]
-            url = track.get("url")
-            track_label = f"[{title}]({url})" if url else title
+            track_label = format_track_label(track["title"], track.get("url"))
             prefix = "▶ " if is_current else f"`{i + 1}.`  "
             lines.append(f"{prefix}{track_label}")
 
         embed = discord.Embed(
             title="Queue",
-            description="\n".join(lines) if lines else "There is nothing in the queue.",
+            description=fit_description(lines)
+            if lines
+            else "There is nothing in the queue.",
             color=discord.Color.blurple(),
         )
         total = len(self.player.get_playlist().get_tracks())
@@ -518,8 +549,10 @@ class SearchResultsView(discord.ui.View):
         results: list,
         per_page: int = SEARCH_RESULTS_PER_PAGE,
         timeout: float = 120,
+        owner_id: int | None = None,
     ):
         super().__init__(timeout=timeout)
+        self.owner_id = owner_id
         self.cog = cog
         self.query = query
         self.results = results
@@ -529,6 +562,14 @@ class SearchResultsView(discord.ui.View):
         self.message = None
         self._build_select()
         self._update_button_state()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.owner_id is None or interaction.user.id == self.owner_id:
+            return True
+        await interaction.response.send_message(
+            "Only the person who ran this search can use it.", ephemeral=True
+        )
+        return False
 
     def _current_page_items(self):
         start = self.page * self.per_page
@@ -672,6 +713,19 @@ class MusicCog(commands.Cog):
 
         return self.players[str(interaction.guild.id)]
 
+    async def _require_same_channel(self, interaction: discord.Interaction) -> bool:
+        """Playback controls only work for people listening in the bot's voice channel."""
+        voice = interaction.guild.voice_client
+        if voice is None or not voice.is_connected():
+            return True
+        user_voice = getattr(interaction.user, "voice", None)
+        if user_voice is None or user_voice.channel != voice.channel:
+            await respond(
+                interaction, "ERROR: You need to be in my voice channel to do that."
+            )
+            return False
+        return True
+
     @app_commands.command(
         name="music_precache_queue",
         description="Caches YouTube metadata and audio for every track in the current queue",
@@ -770,6 +824,11 @@ class MusicCog(commands.Cog):
             self.queue_precaches_in_progress.discard(guild_id)
 
     async def play_from_search(self, interaction: discord.Interaction, query: str):
+        if not await Acl(interaction.guild.id).check_and_fail(
+            Rule.MUSIC_PLAY, interaction
+        ):
+            return False
+
         if not await join_voice(interaction):
             return False
 
@@ -780,7 +839,7 @@ class MusicCog(commands.Cog):
                 interaction, "ERROR: Failed to get the player for this Discord server"
             )
 
-        track_info = player.queue_track(query)
+        track_info = await player.queue_track(query)
         if not track_info:
             error(self, "Failed to queue", interaction.guild)
             return await respond(interaction, f"ERROR: Failed to queue '{query}'")
@@ -810,6 +869,7 @@ class MusicCog(commands.Cog):
             interaction.guild,
         )
 
+        await defer(interaction)
         if not await join_voice(interaction):
             return False
 
@@ -821,7 +881,7 @@ class MusicCog(commands.Cog):
             )
 
         await respond(interaction, "Hold on, let me look that up...")
-        track_info = player.queue_track(query)
+        track_info = await player.queue_track(query)
         if not track_info:
             error(self, "Failed to queue", interaction.guild)
             return await respond(
@@ -865,8 +925,11 @@ class MusicCog(commands.Cog):
         if not results:
             return await respond(interaction, f"No results found for '{query}'.")
 
-        view = SearchResultsView(self, query, results)
-        await respond(interaction, embed=view.build_embed(), view=view)
+        view = SearchResultsView(self, query, results, owner_id=interaction.user.id)
+        # Replace the "Searching..." message so view.message is the message that holds the view
+        await interaction.edit_original_response(
+            content=None, embed=view.build_embed(), view=view
+        )
         view.message = await interaction.original_response()
 
     @app_commands.command(name="play_radio", description="Plays radio")
@@ -898,6 +961,7 @@ class MusicCog(commands.Cog):
                 interaction, "ERROR: Failed to get the player for this Discord server"
             )
 
+        await defer(interaction)
         await player.stop_track()
         if not await join_voice(interaction):
             return False
@@ -936,8 +1000,6 @@ class MusicCog(commands.Cog):
                 interaction, "ERROR: Failed to get the player for this Discord server"
             )
 
-        await player.stop_track()
-
         if not validators.url(query) and not re.match(allowed_chars_regex, query):
             warn(self, "Invalid input", interaction.guild)
             return await respond(
@@ -945,13 +1007,18 @@ class MusicCog(commands.Cog):
                 "ERROR: Invalid format, only alphanumeric characters or URLs are allowed.",
             )
 
+        await defer(interaction)
         await respond(interaction, "Go get yourself a coffee, this can take a while...")
         playlist_info = await player.queue_playlist(query)
         if not playlist_info:
             error(self, "Failed to queue", interaction.guild)
-            return await respond(interaction, f"ERROR: Failed to queue '{query}'")
+            return await respond_or_send(
+                interaction, f"ERROR: Failed to queue '{query}'"
+            )
 
-        await respond(interaction, f"Queued {len(playlist_info)} items!")
+        # Only interrupt the current playback once the new playlist has loaded successfully
+        await player.stop_track()
+        await respond_or_send(interaction, f"Queued {len(playlist_info)} items!")
 
     @app_commands.command(
         name="list_playlists", description="Lists available playlists"
@@ -977,13 +1044,12 @@ class MusicCog(commands.Cog):
 
         playlists = player.get_playlist().get_available_playlists()
         if not playlists:
-            error(self, "Failed to list playlists", interaction.guild)
-            return await respond(interaction, "ERROR: Failed to list playlists")
+            return await respond(interaction, "There are no saved playlists.")
 
         embed = discord.Embed(
             title="Available Playlists",
-            description="\n".join(
-                f"`{i + 1}.` {name}" for i, name in enumerate(playlists)
+            description=fit_description(
+                [f"`{i + 1}.` {name}" for i, name in enumerate(playlists)]
             ),
             color=discord.Color.blurple(),
         )
@@ -1200,7 +1266,7 @@ class MusicCog(commands.Cog):
 
             if track_index == 0:
                 error(self, "No tracks available for download", interaction.guild)
-                return await respond(
+                return await respond_or_send(
                     interaction,
                     f"ERROR: None of the tracks in '{name}' could be fetched or cached.",
                 )
@@ -1222,11 +1288,11 @@ class MusicCog(commands.Cog):
                     f"Failed to upload playlist zip to S3 ({e})",
                     interaction.guild,
                 )
-                return await respond(
+                return await respond_or_send(
                     interaction, "ERROR: Failed to upload the playlist zip to storage."
                 )
 
-            await respond(
+            await respond_or_send(
                 interaction,
                 f"✅ Here's '{playlist.get_name()}' ({track_index} track(s))!\n{download_url}",
             )
@@ -1435,6 +1501,9 @@ class MusicCog(commands.Cog):
                 interaction, "ERROR: Failed to get the player for this Discord server"
             )
 
+        if not await self._require_same_channel(interaction):
+            return False
+
         await player.stop_track()
         player.get_playlist().clear()
 
@@ -1464,7 +1533,11 @@ class MusicCog(commands.Cog):
                 interaction, "ERROR: Failed to get the player for this Discord server"
             )
 
-        player.skip_track()
+        if not await self._require_same_channel(interaction):
+            return False
+
+        if player.skip_track() is False:
+            return await respond(interaction, "ERROR: Nothing is playing.")
 
         await respond(interaction, "Done!")
 
@@ -1494,7 +1567,10 @@ class MusicCog(commands.Cog):
 
         playlist = player.get_playlist()
 
-        index = int(index)
+        try:
+            index = int(index)
+        except ValueError:
+            return await respond(interaction, "ERROR: The index must be a number.")
         if index < 1 or index > len(playlist.get_tracks()):
             warn(self, "Invalid input", interaction.guild)
             await respond(
@@ -1503,7 +1579,11 @@ class MusicCog(commands.Cog):
             )
             return False
 
-        player.skip_track_to_index(index - 1)
+        if not await self._require_same_channel(interaction):
+            return False
+
+        if player.skip_track_to_index(index - 1) is False:
+            return await respond(interaction, "ERROR: Nothing is playing.")
 
         await respond(interaction, "Done!")
 
@@ -1532,7 +1612,10 @@ class MusicCog(commands.Cog):
         playlist = player.get_playlist()
         tracks = playlist.get_tracks()
 
-        index = int(index)
+        try:
+            index = int(index)
+        except ValueError:
+            return await respond(interaction, "ERROR: The index must be a number.")
         if index < 1 or index > len(tracks):
             warn(self, "Invalid input", interaction.guild)
             return await respond(
@@ -1580,7 +1663,11 @@ class MusicCog(commands.Cog):
                 interaction, "ERROR: Failed to get the player for this Discord server"
             )
 
-        player.prev_track()
+        if not await self._require_same_channel(interaction):
+            return False
+
+        if player.prev_track() is False:
+            return await respond(interaction, "ERROR: Nothing is playing.")
 
         await respond(interaction, "Done!")
 
@@ -1663,14 +1750,13 @@ class MusicCog(commands.Cog):
         lines = []
         for i in range(display_num_top_tracks):
             track = tracks[tracks_keys[i]]
-            url = track.get("url")
-            track_label = f"[{track['title']}]({url})" if url else track["title"]
+            track_label = format_track_label(track["title"], track.get("url"))
             lines.append(
                 f"`{i + 1}.` {track_label} — **{track['count']}** play{'s' if track['count'] != 1 else ''}"
             )
 
         embed = discord.Embed(
-            title="Top Tracks", description="\n".join(lines), color=discord.Color.gold()
+            title="Top Tracks", description=fit_description(lines), color=discord.Color.gold()
         )
         embed.set_footer(text=f"Showing top {display_num_top_tracks} track(s)")
 

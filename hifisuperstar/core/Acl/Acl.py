@@ -6,6 +6,29 @@ from hifisuperstar.io.Logger import warn
 from hifisuperstar.io.Resources import load_resource, save_resource
 
 
+TRUTHY = ("1", "true", "yes", "on")
+FALSY = ("0", "false", "no", "off")
+ADMIN_ROLE = "Admin"
+
+
+def get_valid_rules():
+    from hifisuperstar.core.Acl import Rule
+
+    return sorted(
+        value for key, value in vars(Rule).items() if key.isupper() and isinstance(value, str)
+    )
+
+
+def normalize_allowed(value):
+    """Maps user input like 'true'/'0' to the stored '1'/'0' form, or None when it is not understood."""
+    value = str(value).strip().lower()
+    if value in TRUTHY:
+        return "1"
+    if value in FALSY:
+        return "0"
+    return None
+
+
 class Acl:
     def __init__(self, guild_id):
         self.guild_id = guild_id
@@ -41,10 +64,18 @@ class Acl:
         if rule not in self.rules[str(resource_id)]:
             return default
 
-        return self.rules[str(resource_id)][str(rule)] == "1"
+        return str(self.rules[str(resource_id)][str(rule)]).strip().lower() in TRUTHY
 
     async def check_and_fail(self, rule, interaction):
-        if not self.is_allowed(rule, interaction.user.id, True):
+        # Admin mode locks everyone else out, it must not lock out the admins managing it
+        is_admin = any(
+            getattr(role, "name", None) == ADMIN_ROLE
+            for role in getattr(interaction.user, "roles", [])
+        )
+        if not (
+            (is_admin and self.rules.get("ADMIN_MODE"))
+            or self.is_allowed(rule, interaction.user.id, True)
+        ):
             warn(
                 self,
                 f"The user {interaction.user.id} does not have permission to do that",

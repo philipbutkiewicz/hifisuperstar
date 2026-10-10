@@ -83,6 +83,7 @@ class Player:
                         self.playlist.jump_to(0)
             else:
                 self.playlist.prev_track()
+                self.prev = False
         else:
             if self.jump_to_index > -1:
                 self.playlist.jump_to(self.jump_to_index)
@@ -127,10 +128,17 @@ class Player:
         await self._resume_playback()
 
     def _start_voice_monitor(self):
+        loop = self.interaction.client.loop
+        try:
+            on_loop = asyncio.get_running_loop() is loop
+        except RuntimeError:
+            on_loop = False
+        if not on_loop:
+            # create_task is not thread-safe, hop onto the bot's loop first
+            loop.call_soon_threadsafe(self._start_voice_monitor)
+            return
         if self._voice_task is None or self._voice_task.done():
-            self._voice_task = self.interaction.client.loop.create_task(
-                self._monitor_voice()
-            )
+            self._voice_task = loop.create_task(self._monitor_voice())
 
     async def _monitor_voice(self):
         try:
@@ -319,7 +327,7 @@ class Player:
         )
         return True
 
-    def queue_track(self, query=None):
+    async def queue_track(self, query=None):
         voice = self.interaction.guild.voice_client
         if voice is None or not voice.is_connected():
             error(
@@ -329,32 +337,52 @@ class Player:
             )
             return False
 
+        allowed_mime_types = self.music_config["Allowed_Mime_Types"]
+        media_source = None
         track_info = None
         if query is not None:
             try:
                 info(
                     self, "Getting media source for a track...", self.interaction.guild
                 )
-                (track_info, url, _playback_url) = media_get_source(
-                    query,
-                    allowed_mime_types=self.music_config["Allowed_Mime_Types"],
+                media_source = await asyncio.to_thread(
+                    media_get_source, query, allowed_mime_types=allowed_mime_types
                 )
-            except:
+            except Exception as exc:
+                error(
+                    self, f"Could not get media source - {exc}", self.interaction.guild
+                )
                 return False
 
-            self.playlist.add_track(track_info["info"]["title"], url)
-        else:
-            if len(self.playlist.get_tracks()) == 0:
-                return False
-
-        if (
-            not voice.is_playing()
-            and not voice.is_paused()
-            and self.play_track() is False
-        ):
+            (source_info, url, _playback_url) = media_source
+            title = (source_info.get("info") or {}).get("title") or url
+            track_info = source_info.get("info") or {"title": title}
+            self.playlist.add_track(title, url)
+        elif len(self.playlist.get_tracks()) == 0:
             return False
 
-        return track_info["info"] if query is not None else True
+        if not voice.is_playing() and not voice.is_paused():
+            current = self.playlist.get_current_track()
+            if current is None:
+                return False
+            if media_source is None or media_source[1] != current["url"]:
+                try:
+                    media_source = await asyncio.to_thread(
+                        media_get_source,
+                        current["url"],
+                        allowed_mime_types=allowed_mime_types,
+                    )
+                except Exception as exc:
+                    error(
+                        self,
+                        f"Could not get media source for track ID {current['id']} - {exc}",
+                        self.interaction.guild,
+                    )
+                    return False
+            if self.play_track(media_source=media_source) is False:
+                return False
+
+        return track_info if query is not None else True
 
     def queue_radio(self):
         voice = self.interaction.guild.voice_client
@@ -386,7 +414,7 @@ class Player:
             playlist = Playlist(self.interaction.guild.id, playlist_name)
             if not playlist.load_from_storage():
                 info(self, "New playlist will be created", self.interaction.guild)
-                entries = media_get_playlist(query)
+                entries = await asyncio.to_thread(media_get_playlist, query)
                 if not entries or len(entries) == 0:
                     error(
                         self, "Invalid link or playlist empty", self.interaction.guild
@@ -423,6 +451,7 @@ class Player:
             return False
 
         self.jump_to_index = -1
+        self.prev = False
 
         voice = self.interaction.guild.voice_client
         if voice is None or not voice.is_connected():
@@ -433,6 +462,7 @@ class Player:
             )
             return False
         voice.stop()
+        return True
 
     def skip_track_to_index(self, index):
         if self.stopped or self.streaming:
@@ -450,6 +480,7 @@ class Player:
             )
             return False
         voice.stop()
+        return True
 
     def prev_track(self):
         if self.stopped or self.streaming:
@@ -467,6 +498,7 @@ class Player:
             )
             return False
         voice.stop()
+        return True
 
     async def stop_track(self):
         self._playback_id += 1

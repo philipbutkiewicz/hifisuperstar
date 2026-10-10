@@ -67,7 +67,7 @@ class GuildSettingsTests(unittest.TestCase):
                 await LLMCog.toggle_llm.callback(cog, second)
 
         asyncio.run(configure())
-        cog._get_state(11)["conversation_history"].append("temporary")
+        cog._get_state(11)["conversation_history"][101] = ["temporary"]
         assert "conversation_history" not in load_resource("llm", 11)
         cog.guild_states = {}
         first_state = cog._get_state(11)
@@ -79,7 +79,7 @@ class GuildSettingsTests(unittest.TestCase):
         self.assertEqual(first_state["reasoning_effort"], "high")
         self.assertEqual(first_state["max_web_search_calls"], 3)
         self.assertEqual(first_state["mode"], "evil")
-        self.assertEqual(first_state["conversation_history"], [])
+        self.assertEqual(first_state["conversation_history"], {})
         self.assertIsNone(second_state["channel_id"])
         self.assertFalse(second_state["enabled"])
         self.assertEqual(second_state["model"], "default")
@@ -274,22 +274,31 @@ class GuildSettingsTests(unittest.TestCase):
         save_resource("messageids", 11, {"900": "default"})
         role = SimpleNamespace(name="DJ")
         guild = SimpleNamespace(id=11, name="One", roles=[role])
-        message = SimpleNamespace(id=900, guild=guild, author=SimpleNamespace(bot=True))
-        reaction = SimpleNamespace(message=message, emoji=SimpleNamespace(name="🎵"))
         member = SimpleNamespace(
-            bot=False, remove_roles=AsyncMock(), add_roles=AsyncMock()
+            bot=False,
+            guild=guild,
+            roles=[],
+            remove_roles=AsyncMock(),
+            add_roles=AsyncMock(),
+        )
+        payload = SimpleNamespace(
+            guild_id=11,
+            message_id=900,
+            member=member,
+            emoji=SimpleNamespace(name="🎵"),
         )
         cog = SelectableRolesCog.__new__(SelectableRolesCog)
         cog.selectable_roles = {}
         cog.message_ids = {}
 
-        asyncio.run(cog.on_reaction_add(reaction, member))
+        asyncio.run(cog.on_raw_reaction_add(payload))
 
         member.add_roles.assert_awaited_once_with(role)
-        message.guild = SimpleNamespace(
+        member.guild = SimpleNamespace(
             id=22, name="Two", roles=[SimpleNamespace(name="Other")]
         )
-        asyncio.run(cog.on_reaction_add(reaction, member))
+        payload.guild_id = 22
+        asyncio.run(cog.on_raw_reaction_add(payload))
         member.add_roles.assert_awaited_once_with(role)
 
     def test_acl_commands_save_only_their_guild_rules(self):
@@ -307,7 +316,7 @@ class GuildSettingsTests(unittest.TestCase):
                 await AclCog.set_rule.callback(
                     cog,
                     SimpleNamespace(guild=SimpleNamespace(id=11, name="One")),
-                    "PLAY",
+                    "MUSIC_PLAY",
                     "0",
                     member,
                 )
@@ -316,7 +325,7 @@ class GuildSettingsTests(unittest.TestCase):
                 )
 
         asyncio.run(run())
-        self.assertEqual(load_resource("acl", 11)["123"]["PLAY"], "0")
+        self.assertEqual(load_resource("acl", 11)["123"]["MUSIC_PLAY"], "0")
         self.assertNotIn("ADMIN_MODE", load_resource("acl", 11))
         self.assertEqual(load_resource("acl", 22), {"ADMIN_MODE": True})
 

@@ -185,7 +185,7 @@ class PlaylistRenameTests(unittest.IsolatedAsyncioTestCase):
     async def test_corrupt_playlist_reports_error_without_touching_index(self):
         Path(self.playlist.get_playlist_path()).write_text("invalid JSON")
         await self.run_command()
-        self.assertIn("Failed to rename", self.respond.await_args.args[1])
+        self.assertIn("ERROR", self.respond.await_args.args[1])
         self.assertEqual(self.playlist.get_available_playlists(), ["Favorites"])
 
     def test_destination_write_failure_leaves_original_intact(self):

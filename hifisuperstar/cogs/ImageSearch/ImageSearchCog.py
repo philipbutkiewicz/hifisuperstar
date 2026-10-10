@@ -3,6 +3,7 @@
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
+import asyncio
 import random
 
 import discord
@@ -99,10 +100,14 @@ class ImageSearchCog(commands.Cog):
 
         await respond(interaction, "Hold on, looking that up...")
 
-        images = self.find_image(query, interaction.guild.id)
+        images = await asyncio.to_thread(self.find_image, query, interaction.guild.id)
 
         if len(images) == 0:
             return await respond(interaction, "No results found.")
+
+        if item_index < 0:
+            warn(self, "Invalid input", interaction.guild)
+            return await respond(interaction, "ERROR: item_index cannot be negative.")
 
         if (
             item_index > len(images) - 1
@@ -140,7 +145,7 @@ class ImageSearchCog(commands.Cog):
 
         await respond(interaction, "Hold on, looking that up...")
 
-        images = self.find_image(query, interaction.guild.id)
+        images = await asyncio.to_thread(self.find_image, query, interaction.guild.id)
 
         if len(images) == 0:
             return await respond(interaction, "No results found.")

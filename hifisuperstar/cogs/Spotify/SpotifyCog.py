@@ -3,6 +3,7 @@
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
+import asyncio
 import re
 
 import discord
@@ -45,8 +46,10 @@ class SpotifyCog(commands.Cog):
             f"Getting Spotify playlist with URL '{playlist_url}'",
             interaction.guild,
         )
-        playlist = self.client.get_playlist(
-            interaction, self.client.get_birdy_uri(playlist_url)
+        playlist = await asyncio.to_thread(
+            self.client.get_playlist,
+            interaction,
+            self.client.get_birdy_uri(playlist_url),
         )
 
         if not playlist:

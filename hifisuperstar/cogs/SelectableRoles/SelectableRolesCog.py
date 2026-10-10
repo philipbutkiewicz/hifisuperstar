@@ -22,7 +22,7 @@ class SelectableRolesCog(commands.Cog):
         self.setup_events()
 
     def setup_events(self):
-        Events.add_event("on_reaction_add", self.on_reaction_add)
+        Events.add_event("on_raw_reaction_add", self.on_raw_reaction_add)
 
     def load_selectable_roles(self, guild_id):
         self.selectable_roles[guild_id] = load_resource("selectableroles", guild_id)
@@ -43,53 +43,52 @@ class SelectableRolesCog(commands.Cog):
 
         return self.selectable_roles[guild_id][name]
 
-    async def on_reaction_add(self, reaction, member):
-        message = reaction.message
-
-        if not message.author.bot:
-            warn(self, "Cannot react to non-bot messages")
+    async def on_raw_reaction_add(self, payload):
+        # Raw events also fire for messages that are not in the cache (e.g. after a restart)
+        member = payload.member
+        if member is None or member.bot or payload.guild_id is None:
             return False
 
-        if member.bot:
-            warn(self, "Cannot react to self")
+        guild = member.guild
+        self.load_message_ids(guild.id)
+
+        message_id = str(payload.message_id)
+        if message_id not in self.message_ids[guild.id]:
             return False
 
-        if not message.guild or not message.guild.id:
-            warn(self, f"Not a server reaction: {reaction}")
-            return False
-
-        self.load_message_ids(message.guild.id)
-
-        message_id = str(message.id)
-        if message_id not in self.message_ids[message.guild.id]:
-            warn(self, f"Message ID {message.id} is not valid for reactions")
-            return False
-
-        self.load_selectable_roles(message.guild.id)
+        self.load_selectable_roles(guild.id)
         selected_list = self.load_selected_list(
-            message.guild.id, self.message_ids[message.guild.id][message_id]
+            guild.id, self.message_ids[guild.id][message_id]
         )
         role = None
         for selectable_role in selected_list:
-            if selected_list[selectable_role]["emoji"] == getattr(
-                reaction.emoji, "name", reaction.emoji
-            ):
+            if selected_list[selectable_role]["emoji"] == payload.emoji.name:
                 role = selectable_role
                 break
 
         if role is None:
             return False
 
-        info(self, f"Role selected as '{role}' for {member}", message.guild)
+        new_role = discord.utils.get(guild.roles, name=role)
+        if new_role is None:
+            warn(self, f"Role '{role}' no longer exists", guild)
+            return False
 
-        info(self, f"Removing existing selectable roles for {member}", message.guild)
-        for selectable_role in selected_list:
-            await member.remove_roles(
-                discord.utils.get(message.guild.roles, name=selectable_role)
-            )
+        info(self, f"Role selected as '{role}' for {member}", guild)
 
-        info(self, f"Adding role '{role}' for {member}", message.guild)
-        await member.add_roles(discord.utils.get(message.guild.roles, name=role))
+        old_roles = [
+            existing
+            for name in selected_list
+            if name != role
+            and (existing := discord.utils.get(member.roles, name=name)) is not None
+        ]
+        try:
+            if old_roles:
+                await member.remove_roles(*old_roles)
+            await member.add_roles(new_role)
+        except discord.HTTPException as exc:
+            error(self, f"Could not update roles for {member}: {exc}", guild)
+            return False
 
     @app_commands.command(
         name="add_selectable_role", description="Adds a user selectable role"
@@ -122,7 +121,7 @@ class SelectableRolesCog(commands.Cog):
         self.save_selectable_roles(interaction.guild.id)
 
         await respond(
-            interaction, f"Role '{role}' has been added to list '{list_name}'."
+            interaction, f"Role '{role}' has been added to list '{list_name or 'default'}'."
         )
 
     @app_commands.command(
@@ -144,9 +143,10 @@ class SelectableRolesCog(commands.Cog):
         selected_list = self.load_selected_list(interaction.guild.id, list_name)
 
         if role not in selected_list:
-            error(self, f"Role {role} does not exist in list {selected_list}")
+            error(self, f"Role {role} does not exist in list {list_name or 'default'}")
             return await respond(
-                interaction, f"Role '{role}' does not exist in list '{selected_list}'!"
+                interaction,
+                f"Role '{role}' does not exist in list '{list_name or 'default'}'!",
             )
 
         del selected_list[role]
@@ -154,7 +154,7 @@ class SelectableRolesCog(commands.Cog):
         self.save_selectable_roles(interaction.guild.id)
 
         await respond(
-            interaction, f"Role '{role}' has been removed from list '{selected_list}'."
+            interaction, f"Role '{role}' has been removed from list '{list_name or 'default'}'."
         )
 
     @app_commands.command(

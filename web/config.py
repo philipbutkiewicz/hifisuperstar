@@ -8,7 +8,8 @@ import os
 
 class Config:
     SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "")
-    BASE_APP_PATH = "../"
+    # Absolute so it does not depend on the working directory the server was started from
+    BASE_APP_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
