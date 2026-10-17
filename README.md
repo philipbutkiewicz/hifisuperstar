@@ -175,6 +175,7 @@ The browser listens on `127.0.0.1:5000` by default. Set `WEB_BIND` and `WEB_PORT
 - `RandomPicturesCog` - which picture categories and file types are enabled.
 - `RegexCog` - whether matched messages get logged.
 - `ImageSearchCog` - max results and safe-search level.
+- `EstablishDominanceCog` - `Blocked_Bots`: rival bots to disconnect from voice channels whenever they join one (and on startup). On by default per server; admins switch it with `/establish_dominance_toggle` (remembered in `storage/establishdominance.<guild_id>.json`). Each entry has a `Name` with an optional `Discriminator`, or an `Id`, e.g. `{"Name": "SomeBot", "Discriminator": "1234"}`. The list is empty by default, so no bot is blocked until you add one. The bot needs the **Move Members** permission.
 - `LLMCog` - OpenAI-compatible API URL/key/model, token limit, default system prompt, and reasoning effort. Model, token limit, reasoning effort, mode, web search limit, enabled state, and channel restriction can be overridden per server via the `/llm_*` commands. These settings are saved in `storage/llm.<guild_id>.json` and restored after restart; conversation history is not saved.
 
 Server-facing values in the sections above are defaults. Put overrides in `Guilds` using the Discord server ID as a string; nested sections such as `MusicCog.S3` inherit unspecified defaults:

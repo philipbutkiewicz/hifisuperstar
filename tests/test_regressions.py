@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import discord
 from yt_dlp.utils import DownloadError
 
 from hifisuperstar.core.Acl.Acl import Acl, normalize_allowed
@@ -747,6 +748,128 @@ class MusicHelpTests(TemporaryDirectoryCase):
                 )
             )
         self.assertTrue(respond.await_args.kwargs["ephemeral"])
+
+
+class EstablishDominanceTests(TemporaryDirectoryCase):
+    @staticmethod
+    def bot_member(name="DesktopMusicHelper", discriminator="3176", is_bot=True, guild_id=11):
+        return SimpleNamespace(
+            id=7,
+            name=name,
+            discriminator=discriminator,
+            bot=is_bot,
+            guild=SimpleNamespace(id=guild_id, name="T"),
+            voice=SimpleNamespace(channel="Music"),
+            move_to=AsyncMock(),
+        )
+
+    def make_cog(self, guilds=()):
+        from hifisuperstar.cogs.EstablishDominance.EstablishDominanceCog import (
+            EstablishDominanceCog,
+        )
+
+        cog = EstablishDominanceCog.__new__(EstablishDominanceCog)
+        cog.config = {
+            "EstablishDominanceCog": {
+                "Blocked_Bots": [{"Name": "DesktopMusicHelper", "Discriminator": "3176"}]
+            }
+        }
+        cog.bot = SimpleNamespace(guilds=list(guilds))
+        cog.enabled_guilds = {}
+        return cog
+
+    def test_only_the_configured_bot_is_blocked(self):
+        from hifisuperstar.cogs.EstablishDominance.EstablishDominanceCog import (
+            is_blocked_bot,
+        )
+
+        rivals = [{"Name": "DesktopMusicHelper", "Discriminator": "3176"}]
+        blocked = lambda member: is_blocked_bot(member, rivals)
+        self.assertTrue(blocked(self.bot_member()))
+        self.assertTrue(blocked(self.bot_member(name="desktopmusichelper")))
+        self.assertTrue(blocked(self.bot_member(discriminator="0")))  # migrated username
+        self.assertFalse(blocked(self.bot_member(discriminator="1234")))
+        self.assertFalse(blocked(self.bot_member(name="Other Bot")))
+        self.assertFalse(blocked(self.bot_member(is_bot=False)))  # a human with that name
+        self.assertTrue(is_blocked_bot(self.bot_member(name="x"), [{"Id": "7"}]))
+
+    def test_joining_voice_disconnects_the_bot(self):
+        cog = self.make_cog()
+        member = self.bot_member()
+        joined = SimpleNamespace(channel="Music")
+        asyncio.run(cog.on_voice_state_update(member, SimpleNamespace(channel=None), joined))
+        member.move_to.assert_awaited_once()
+        self.assertIsNone(member.move_to.await_args.args[0])
+
+    def test_nobody_is_blocked_without_configuration(self):
+        cog = self.make_cog()
+        cog.config = {}
+        member = self.bot_member()
+        asyncio.run(cog.on_voice_state_update(member, SimpleNamespace(channel=None), SimpleNamespace(channel="Music")))
+        member.move_to.assert_not_awaited()
+
+    def test_leaving_muting_and_other_members_are_ignored(self):
+        cog = self.make_cog()
+        member = self.bot_member()
+        asyncio.run(cog.on_voice_state_update(member, SimpleNamespace(channel="Music"), SimpleNamespace(channel=None)))
+        asyncio.run(cog.on_voice_state_update(member, SimpleNamespace(channel="Music"), SimpleNamespace(channel="Music")))
+        member.move_to.assert_not_awaited()
+        other = self.bot_member(name="Someone", is_bot=False)
+        asyncio.run(cog.on_voice_state_update(other, SimpleNamespace(channel=None), SimpleNamespace(channel="Music")))
+        other.move_to.assert_not_awaited()
+
+    def test_missing_permission_is_logged_not_raised(self):
+        cog = self.make_cog()
+        member = self.bot_member()
+        member.move_to.side_effect = discord.Forbidden(MagicMock(status=403), "no")
+        asyncio.run(cog.on_voice_state_update(member, SimpleNamespace(channel=None), SimpleNamespace(channel="Music")))
+
+    def test_toggle_command_switches_it_off_and_on_per_guild(self):
+        from hifisuperstar.cogs.EstablishDominance.EstablishDominanceCog import (
+            EstablishDominanceCog,
+        )
+
+        lingering = self.bot_member()
+        guild = SimpleNamespace(
+            id=11,
+            name="T",
+            voice_channels=[SimpleNamespace(members=[lingering])],
+        )
+        cog = self.make_cog([guild])
+        interaction = SimpleNamespace(guild=guild)
+        respond = AsyncMock()
+
+        def toggle():
+            with (
+                patch("hifisuperstar.cogs.EstablishDominance.EstablishDominanceCog.check_server", new=AsyncMock(return_value=True)),
+                patch("hifisuperstar.cogs.EstablishDominance.EstablishDominanceCog.respond", respond),
+            ):
+                asyncio.run(EstablishDominanceCog.establish_dominance_toggle.callback(cog, interaction))
+
+        self.assertTrue(cog.is_enabled(11))
+        toggle()  # off
+        self.assertFalse(cog.is_enabled(11))
+        self.assertIn("Standing down", respond.await_args.args[1])
+        lingering.move_to.assert_not_awaited()
+
+        join = SimpleNamespace(channel="Music")
+        asyncio.run(cog.on_voice_state_update(lingering, SimpleNamespace(channel=None), join))
+        lingering.move_to.assert_not_awaited()  # disabled: nothing happens
+
+        # The choice survives a restart and does not leak into other servers
+        self.assertFalse(self.make_cog().is_enabled(11))
+        self.assertTrue(self.make_cog().is_enabled(22))
+
+        toggle()  # on again: bots that are already in voice are removed right away
+        self.assertTrue(cog.is_enabled(11))
+        lingering.move_to.assert_awaited_once()
+
+    def test_startup_scan_removes_bots_that_were_already_in_voice(self):
+        lingering = self.bot_member()
+        guild = SimpleNamespace(id=11, name="T", voice_channels=[SimpleNamespace(members=[lingering])])
+        cog = self.make_cog([guild])
+        asyncio.run(cog.on_ready())
+        lingering.move_to.assert_awaited_once()
 
 
 class WebTests(unittest.TestCase):

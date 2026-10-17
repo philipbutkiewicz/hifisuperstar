@@ -8,6 +8,9 @@ import sys
 
 from hifisuperstar.Bot import Bot
 from hifisuperstar.cogs.Acl.AclCog import AclCog
+from hifisuperstar.cogs.EstablishDominance.EstablishDominanceCog import (
+    EstablishDominanceCog,
+)
 from hifisuperstar.cogs.ImageSearch.ImageSearchCog import ImageSearchCog
 from hifisuperstar.cogs.Jokes.JokesCog import JokesCog
 from hifisuperstar.cogs.LLM.LLMCog import LLMCog
@@ -96,6 +99,9 @@ if "UserJoin" in config["Bot"]["Enabled_Cogs"]:
 
 if "SelectableRoles" in config["Bot"]["Enabled_Cogs"]:
     client.stage_cog(SelectableRolesCog(config))
+
+if "EstablishDominance" in config["Bot"]["Enabled_Cogs"]:
+    client.stage_cog(EstablishDominanceCog(config, client))
 
 if "LLM" in config["Bot"]["Enabled_Cogs"]:
     client.stage_cog(LLMCog(config, client))

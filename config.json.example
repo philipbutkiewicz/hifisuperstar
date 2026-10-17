@@ -12,6 +12,7 @@
             "Regex",
             "ImageSearch",
             "SelectableRoles",
+            "EstablishDominance",
             "LLM"
         ]
     },
@@ -77,6 +78,9 @@
     "ImageSearchCog": {
         "Max_Results": 10,
         "Safe_Search": "Moderate"
+    },
+    "EstablishDominanceCog": {
+        "Blocked_Bots": []
     },
     "LLMCog": {
         "Log_Messages": true,
