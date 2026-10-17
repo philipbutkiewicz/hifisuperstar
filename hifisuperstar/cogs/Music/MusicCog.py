@@ -43,6 +43,7 @@ from hifisuperstar.core.Server.Server import (
 )
 from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error, info, warn
+from hifisuperstar.io.Resources import load_resource
 from hifisuperstar.io.Strings import allowed_chars_regex
 
 PLAYLIST_TRACKS_PER_PAGE = 20
@@ -711,6 +712,113 @@ class SearchResultsView(discord.ui.View):
         self._build_select()
         self._update_button_state()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+
+def build_music_help_embed(config, guild_id) -> discord.Embed:
+    """The /music_help embed. Optional features are only listed when they are enabled for this server."""
+    enabled_cogs = config.get("Bot", {}).get("Enabled_Cogs", [])
+    music_config = get_guild_config(config, "MusicCog", guild_id)
+
+    embed = discord.Embed(
+        title="🎵 How to use the music bot",
+        description=(
+            "Join a voice channel, then use the commands below."
+            + (" You can also just talk to me, see the last section." if "LLM" in enabled_cogs else "")
+        ),
+        color=discord.Color.blurple(),
+    )
+    embed.add_field(
+        name="▶️ Playing music",
+        value=(
+            "`/play <song or link>` queues a song by name (`Artist - Title`), a YouTube link or a direct audio link. "
+            "If nothing is playing it starts right away, otherwise it joins the queue. "
+            "`/play` without anything plays the current queue.\n"
+            "`/search <words>` shows a list of YouTube results to pick from.\n"
+            "`/play_radio` plays the radio stream. `/stop` stops playback and clears the queue."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="📋 The queue",
+        value=(
+            "`/queue` shows the queue with a dropdown to jump to any track.\n"
+            "`/skip` next track, `/prev` previous track, `/jump_to_index <number>` jump to a position, "
+            "`/queue_remove <number>` remove a track (not the one playing)."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🔀 Modes and volume",
+        value=(
+            "`/repeat` keeps replaying the current track, `/repeat_all` loops the whole queue, "
+            "`/shuffle` plays the queue in random order. "
+            "I remind you in my replies while one of them is on, so if the music seems stuck, check these first.\n"
+            "`/volume <0-1.0>` sets the volume (e.g. `0.05`). It is remembered for this server."
+        ),
+        inline=False,
+    )
+
+    playlists = [
+        (
+            "`/playlist <YouTube playlist link>` loads a YouTube playlist (add `reimport: True` to fetch it "
+            "again if it changed), or `/playlist <name>` loads one you saved."
+        ),
+        (
+            "`/playlist_save <name>` saves the current queue (`overwrite: True` replaces an existing one), "
+            "`/list_playlists` and `/playlist_view <name>` browse saved playlists."
+        ),
+        "`/playlist_rename` and `/playlist_delete` manage them (Admin role).",
+    ]
+    if music_config.get("S3", {}).get("Enabled"):
+        playlists.append(
+            "`/playlist_download <name>` packs a saved playlist into a zip, `/playlist_downloads` lists the zips made so far."
+        )
+    if "Spotify" in enabled_cogs:
+        playlists.append(
+            "`/spotify_import_playlist <link>` imports a Spotify playlist as a saved playlist."
+        )
+    embed.add_field(name="💾 Playlists", value="\n".join(playlists), inline=False)
+
+    embed.add_field(
+        name="📈 Extras",
+        value=(
+            "`/top_tracks` shows the most played songs. "
+            "`/music_precache_queue` downloads every track in the queue ahead of time so playback is smoother."
+        ),
+        inline=False,
+    )
+
+    if "LLM" in enabled_cogs:
+        state = load_resource("llm", guild_id)
+        where = (
+            f"in <#{state['channel_id']}>"
+            if state.get("channel_id")
+            else "in any channel I can read"
+        )
+        if state.get("enabled"):
+            chat = (
+                f"You don't need commands at all: just write to me {where} like to a person. "
+                "For example *\"play some Daft Punk\"*, *\"queue these 10 songs: ...\"*, *\"skip this\"*, "
+                "*\"go back\"*, *\"turn shuffle on\"*, *\"what's in the queue?\"* or *\"remove track 3\"*. "
+                "You need to be in a voice channel for me to join you. I can also search the web and images."
+            )
+        else:
+            chat = (
+                "I can also be controlled by chatting in plain language (\"play some Daft Punk\", \"skip this\"), "
+                "but that is currently switched off on this server. An admin can turn it on with `/toggle_llm`."
+            )
+        embed.add_field(name="🤖 Just talk to me", value=chat, inline=False)
+
+    embed.add_field(
+        name="💡 Good to know",
+        value=(
+            "`/music_help` shows this message again. "
+            "You need to be in my voice channel to control playback. "
+            "If a song can't be played I tell you why (age-restricted, private, region-locked, ...)."
+        ),
+        inline=False,
+    )
+    return embed
 
 
 # noinspection DuplicatedCode
@@ -1933,3 +2041,19 @@ class MusicCog(commands.Cog):
         shuffle = player.set_shuffle()
 
         await respond(interaction, f"Shuffle is now {'on' if shuffle else 'off'}")
+
+    @app_commands.command(
+        name="music_help", description="Explains how to use the music bot"
+    )
+    async def music_help(self, interaction: discord.Interaction):
+        info(self, "Music help request")
+
+        if not await check_server(interaction):
+            error(self, "Server verification failed")
+            return False
+
+        await respond(
+            interaction,
+            embed=build_music_help_embed(self.config, interaction.guild.id),
+            ephemeral=True,
+        )

@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from yt_dlp.utils import DownloadError
@@ -686,6 +687,66 @@ class PlaylistRegressionTests(TemporaryDirectoryCase):
             asyncio.run(MusicCog.playlist_save.callback(cog, interaction, "Existing"))
         self.assertIn("ERROR", respond.await_args.args[1])
         self.assertEqual(live.get_name(), original_name)
+
+
+class MusicHelpTests(TemporaryDirectoryCase):
+    CONFIG: ClassVar[dict] = {
+        "Bot": {"Enabled_Cogs": ["Music", "LLM", "Spotify"]},
+        "MusicCog": {"S3": {"Enabled": True}},
+    }
+
+    @staticmethod
+    def text(embed):
+        return embed.description + "\n".join(f.name + f.value for f in embed.fields)
+
+    def test_help_mentions_every_music_command(self):
+        from hifisuperstar.cogs.Music.MusicCog import MusicCog, build_music_help_embed
+
+        text = self.text(build_music_help_embed(self.CONFIG, 11))
+        for command in MusicCog.__cog_app_commands__:
+            self.assertIn(f"/{command.name}", text, command.name)
+
+    def test_help_fits_the_discord_embed_limits(self):
+        from hifisuperstar.cogs.Music.MusicCog import build_music_help_embed
+
+        embed = build_music_help_embed(self.CONFIG, 11)
+        self.assertLessEqual(len(embed), 6000)
+        self.assertLessEqual(len(embed.fields), 25)
+        self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
+
+    def test_help_adapts_to_the_server(self):
+        from hifisuperstar.cogs.Music.MusicCog import build_music_help_embed
+
+        minimal = self.text(
+            build_music_help_embed({"Bot": {"Enabled_Cogs": ["Music"]}}, 11)
+        )
+        self.assertNotIn("playlist_downloads", minimal)
+        self.assertNotIn("spotify", minimal)
+        self.assertNotIn("talk to me", minimal)
+
+        save_resource("llm", 11, {"enabled": True, "channel_id": 42})
+        self.assertIn("<#42>", self.text(build_music_help_embed(self.CONFIG, 11)))
+
+        save_resource("llm", 11, {"enabled": False, "channel_id": 42})
+        self.assertIn("/toggle_llm", self.text(build_music_help_embed(self.CONFIG, 11)))
+        self.assertIn("playlist_downloads", self.text(build_music_help_embed(self.CONFIG, 11)))
+
+    def test_command_replies_privately(self):
+        from hifisuperstar.cogs.Music.MusicCog import MusicCog
+
+        cog = MusicCog.__new__(MusicCog)
+        cog.config = self.CONFIG
+        respond = AsyncMock()
+        with (
+            patch("hifisuperstar.cogs.Music.MusicCog.check_server", new=AsyncMock(return_value=True)),
+            patch("hifisuperstar.cogs.Music.MusicCog.respond", respond),
+        ):
+            asyncio.run(
+                MusicCog.music_help.callback(
+                    cog, SimpleNamespace(guild=SimpleNamespace(id=11, name="T"))
+                )
+            )
+        self.assertTrue(respond.await_args.kwargs["ephemeral"])
 
 
 class WebTests(unittest.TestCase):
