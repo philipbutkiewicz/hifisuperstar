@@ -441,7 +441,7 @@ class Player:
             or self.play_track(self.music_config["Radio_URL"]) is not False
         )
 
-    async def queue_playlist(self, query):
+    async def queue_playlist(self, query, reimport=False):
         info(
             self, f"Attempting to queue a playlist: {query}...", self.interaction.guild
         )
@@ -454,8 +454,14 @@ class Player:
                 self.interaction.guild,
             )
             playlist = Playlist(self.interaction.guild.id, playlist_name)
-            if not playlist.load_from_storage():
-                info(self, "New playlist will be created", self.interaction.guild)
+            if reimport or not playlist.load_from_storage():
+                info(
+                    self,
+                    "Playlist will be re-imported"
+                    if reimport
+                    else "New playlist will be created",
+                    self.interaction.guild,
+                )
                 entries = await asyncio.to_thread(media_get_playlist, query)
                 if not entries or len(entries) == 0:
                     error(
@@ -466,11 +472,12 @@ class Player:
                 for playlist_info in entries:
                     if playlist_info is not None:
                         playlist.add_track(
-                            playlist_info["title"],
+                            playlist_info.get("title") or playlist_info["id"],
                             f"https://youtube.com/watch?v={playlist_info['id']}",
                         )
 
-                playlist.save(cache=True)
+                # A failed fetch returns above, so the existing cached copy is only replaced by a good one
+                playlist.save(cache=True, overwrite=True)
 
             self.playlist = playlist
         else:

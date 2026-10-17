@@ -979,7 +979,13 @@ class MusicCog(commands.Cog):
         description="This command can queue a YouTube playlist if supplied with a valid URL, "
         "or load a saved playlist",
     )
-    async def playlist(self, interaction: discord.Interaction, query: str):
+    @app_commands.describe(
+        query="A YouTube playlist URL or the name of a saved playlist",
+        reimport="Fetch a YouTube playlist again instead of using the cached copy",
+    )
+    async def playlist(
+        self, interaction: discord.Interaction, query: str, reimport: bool = False
+    ):
         info(self, "Playback (playlist) request")
 
         if not await check_server(interaction):
@@ -1007,9 +1013,15 @@ class MusicCog(commands.Cog):
                 "ERROR: Invalid format, only alphanumeric characters or URLs are allowed.",
             )
 
+        if reimport and not validators.url(query):
+            return await respond(
+                interaction,
+                "ERROR: reimport only works with a YouTube playlist link, not a saved playlist name.",
+            )
+
         await defer(interaction)
         await respond(interaction, "Go get yourself a coffee, this can take a while...")
-        playlist_info = await player.queue_playlist(query)
+        playlist_info = await player.queue_playlist(query, reimport=reimport)
         if not playlist_info:
             error(self, "Failed to queue", interaction.guild)
             return await respond_or_send(

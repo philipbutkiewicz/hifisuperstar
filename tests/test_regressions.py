@@ -306,6 +306,62 @@ class LLMTests(TemporaryDirectoryCase):
         asyncio.run(run())
 
 
+class ReimportTests(TemporaryDirectoryCase):
+    def make_player(self):
+        guild = SimpleNamespace(id=11, name="Test", voice_client=None)
+        interaction = SimpleNamespace(guild=guild, client=SimpleNamespace())
+        with patch("hifisuperstar.core.Music.Player.PlayCounter"):
+            return Player(interaction, {"MusicCog": {"Allowed_Mime_Types": []}})
+
+    def test_reimport_refreshes_the_cached_playlist(self):
+        url = "https://www.youtube.com/playlist?list=PL123"
+        one = [{"id": "a", "title": "A"}]
+        two = [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}]
+
+        def run(entries, **kwargs):
+            with patch(
+                "hifisuperstar.core.Music.Player.media_get_playlist",
+                return_value=entries,
+            ) as fetch:
+                tracks = asyncio.run(self.make_player().queue_playlist(url, **kwargs))
+            return tracks, fetch
+
+        tracks, _ = run(one)
+        self.assertEqual(len(tracks), 1)
+
+        # Without the flag the cached copy wins and YouTube is not asked again
+        tracks, fetch = run(two)
+        self.assertEqual(len(tracks), 1)
+        fetch.assert_not_called()
+
+        tracks, fetch = run(two, reimport=True)
+        fetch.assert_called_once()
+        self.assertEqual(len(tracks), 2)
+
+        # The refreshed copy is what gets cached from now on
+        tracks, fetch = run(one)
+        self.assertEqual(len(tracks), 2)
+        fetch.assert_not_called()
+
+    def test_failed_reimport_keeps_the_cached_copy(self):
+        url = "https://www.youtube.com/playlist?list=PL123"
+        with patch(
+            "hifisuperstar.core.Music.Player.media_get_playlist",
+            return_value=[{"id": "a", "title": "A"}],
+        ):
+            asyncio.run(self.make_player().queue_playlist(url))
+        with patch(
+            "hifisuperstar.core.Music.Player.media_get_playlist", return_value=None
+        ):
+            self.assertIsNone(
+                asyncio.run(self.make_player().queue_playlist(url, reimport=True))
+            )
+        with patch("hifisuperstar.core.Music.Player.media_get_playlist") as fetch:
+            tracks = asyncio.run(self.make_player().queue_playlist(url))
+        self.assertEqual(len(tracks), 1)
+        fetch.assert_not_called()
+
+
 class VolumeTests(TemporaryDirectoryCase):
     def make_player(self, guild_id=11):
         guild = SimpleNamespace(id=guild_id, name="Test", voice_client=None)
