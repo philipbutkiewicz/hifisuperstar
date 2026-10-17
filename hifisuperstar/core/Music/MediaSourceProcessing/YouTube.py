@@ -14,6 +14,10 @@ from yt_dlp import YoutubeDL
 from yt_dlp.networking.exceptions import TransportError
 from yt_dlp.utils import DownloadError
 
+from hifisuperstar.core.Music.MediaErrors import (
+    MediaNotFoundError,
+    describe_media_error,
+)
 from hifisuperstar.io.Logger import error, info, warn
 from hifisuperstar.io.Strings import str_hash_sha256
 
@@ -59,6 +63,13 @@ def extract_youtube_info(ydl, query, *, download=False):
             time.sleep(5)
 
 
+def first_search_entry(search_info, query):
+    entries = [entry for entry in (search_info or {}).get("entries") or [] if entry]
+    if not entries:
+        raise MediaNotFoundError(f"No YouTube results were found for '{query}'.")
+    return entries[0]
+
+
 def media_get_youtube_direct(url):
     cached = get_cached_youtube_source(url)
     if cached is not None:
@@ -88,7 +99,9 @@ def media_get_youtube_query(query):
 
     info(None, f"YouTube: Performing a YouTube search for query '{query}'...")
     with YoutubeDL(get_ydl_opts()) as ydl:
-        yt_info = extract_youtube_info(ydl, f"ytsearch:{query}")["entries"][0]
+        yt_info = first_search_entry(
+            extract_youtube_info(ydl, f"ytsearch:{query}"), query
+        )
 
         track_info = {"info": yt_info, "is_youtube": True}
 
@@ -105,7 +118,7 @@ def media_get_youtube_query(query):
         )
 
 
-def media_get_youtube_playlist(url):
+def media_get_youtube_playlist(url, errors=None):
     # A single extract_info call can silently stop following continuation pages partway through very
     # large playlists (no error, just fewer entries), so fetch it in explicit playliststart/playlistend
     # ranges instead, forcing a separate request per page until a short/empty page signals the end.
@@ -141,6 +154,8 @@ def media_get_youtube_playlist(url):
         return entries
     except Exception as e:
         error(None, f"YouTube: Failed to fetch playlist '{url}' - {e!s}")
+        if errors is not None:
+            errors.append(describe_media_error(e))
         return None
 
 
@@ -206,7 +221,7 @@ def precache_youtube_track(query):
                     ydl, query if is_url else f"ytsearch:{query}"
                 )
                 if not is_url:
-                    yt_info = yt_info["entries"][0]
+                    yt_info = first_search_entry(yt_info, query)
                     url = f"https://youtube.com/watch?v={yt_info['id']}"
                 cache_youtube_info(query, url, yt_info)
 

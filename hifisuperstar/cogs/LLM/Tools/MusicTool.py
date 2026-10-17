@@ -65,7 +65,8 @@ def create_music_tools(music_cog, message):
         player = _get_player()
         track_info = await player.queue_track(query)
         if not track_info:
-            return f"Failed to queue '{query}'."
+            reason = player.last_error
+            return f"Failed to queue '{query}'" + (f": {reason}" if reason else ".")
         title = track_info["title"] if isinstance(track_info, dict) else query
         return f"Queued '{title}'."
 
@@ -108,7 +109,11 @@ def create_music_tools(music_cog, message):
                         error(None, f"Batch queue of '{query}' failed: {exc}", message.guild)
                         queued = False
                     if not queued:
-                        failed.append(query)
+                        failed.append(
+                            f"{query} ({player.last_error})"
+                            if player.last_error
+                            else query
+                        )
         except Exception as exc:
             error(None, f"Batch queueing crashed: {exc}", message.guild)
             return

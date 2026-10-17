@@ -11,6 +11,7 @@ import discord
 import validators
 
 from hifisuperstar.core.Music.Media import media_get_playlist, media_get_source
+from hifisuperstar.core.Music.MediaErrors import describe_media_error
 from hifisuperstar.core.Music.PlayCounter import PlayCounter
 from hifisuperstar.core.Music.Playlist import Playlist
 from hifisuperstar.core.Server.Server import connect_voice
@@ -18,7 +19,6 @@ from hifisuperstar.io.GuildConfig import get_guild_config
 from hifisuperstar.io.Logger import error, info, warn
 from hifisuperstar.io.Resources import load_resource, save_resource
 from hifisuperstar.io.Strings import str_hash_crc32
-
 
 DEFAULT_VOLUME = 0.02
 
@@ -41,6 +41,8 @@ class Player:
         self.streaming = False
         self.stopped = True
         self.prev = False
+        # Set by skip/prev so they override single-track repeat
+        self._advance_requested = False
         self.jump_to_index = -1
         self._voice_task = None
         self._voice_channel = None
@@ -51,6 +53,8 @@ class Player:
         self._next_track_task = None
         # Incremented by stop_track so background batch queueing can notice a stop
         self.stop_count = 0
+        # Human readable reason why the last queue_track/queue_playlist call failed
+        self.last_error = None
 
     def _load_volume(self):
         """The volume last set in this guild, persisted so it survives restarts."""
@@ -97,77 +101,105 @@ class Player:
             self.streaming = False
             return False
 
-        if not self.options["repeat"] and self.jump_to_index == -1:
-            if not self.prev:
-                if self.options["shuffle"]:
-                    self.playlist.shuffle_next()
-                else:
-                    self.playlist.skip_track()
+        # Consume the one-shot flags now, whatever happens below, so they never go stale
+        go_back = self.prev
+        manual = self._advance_requested
+        self.prev = False
+        self._advance_requested = False
 
-                if self.playlist.get_current_track_index() == -1:
-                    if not self.options["repeat_all"]:
-                        asyncio.run_coroutine_threadsafe(
-                            self.stop_track(), self.interaction.client.loop
-                        )
-                        return False
-                    elif self.options["shuffle"]:
-                        # Everything played once: start a fresh random round
-                        self.playlist.reset_shuffle()
-                        self.playlist.current_index = random.randrange(
-                            len(self.playlist.get_tracks())
-                        )
-                    else:
-                        self.playlist.jump_to(0)
+        if self.jump_to_index > -1:
+            if self.options["shuffle"]:
+                self.playlist.remember_current()
+            self.playlist.jump_to(self.jump_to_index)
+            self.jump_to_index = -1
+        elif self.options["repeat"] and not manual:
+            pass  # replay the same track
+        elif go_back:
+            if self.options["shuffle"]:
+                self.playlist.shuffle_prev()
             else:
-                if self.options["shuffle"]:
-                    self.playlist.shuffle_prev()
-                else:
-                    self.playlist.prev_track()
-                self.prev = False
-        else:
-            if self.jump_to_index > -1:
-                if self.options["shuffle"]:
-                    self.playlist.remember_current()
-                self.playlist.jump_to(self.jump_to_index)
-                self.jump_to_index = -1
+                self.playlist.prev_track()
+        elif not self._advance_playlist():
+            asyncio.run_coroutine_threadsafe(
+                self.stop_track(), self.interaction.client.loop
+            )
+            return False
 
         self._next_track_task = self.interaction.client.loop.create_task(
             self._resume_playback()
         )
 
-    async def _resume_playback(self):
+    def _advance_playlist(self):
+        """Moves to the next track; returns False when the queue is over."""
+        if self.options["shuffle"]:
+            self.playlist.shuffle_next()
+        else:
+            self.playlist.skip_track()
+
+        if self.playlist.get_current_track_index() != -1:
+            return True
+
+        if not self.options["repeat_all"] or not self.playlist.get_tracks():
+            return False
+
+        if self.options["shuffle"]:
+            # Everything played once: start a fresh random round
+            self.playlist.reset_shuffle()
+            self.playlist.current_index = random.randrange(
+                len(self.playlist.get_tracks())
+            )
+        else:
+            self.playlist.jump_to(0)
+        return True
+
+    async def _resume_playback(self, count=True):
         playback_id = self._playback_id
         stream_url = self._stream_url if self.streaming else None
         media_source = None
         if stream_url is None:
-            track = self.playlist.get_current_track()
-            if track is None:
-                self.stopped = True
-                return
-            try:
-                media_source = await asyncio.to_thread(
-                    media_get_source,
-                    track["url"],
-                    allowed_mime_types=self.music_config["Allowed_Mime_Types"],
-                )
-            except Exception as exc:
-                error(
-                    self,
-                    f"Could not get media source for track ID {track['id']} - {exc}",
-                    self.interaction.guild,
-                )
-                if playback_id == self._playback_id:
+            failures = 0
+            max_failures = max(1, len(self.playlist.get_tracks()))
+            while True:
+                track = self.playlist.get_current_track()
+                if track is None:
                     self.stopped = True
-                return
+                    return
+                try:
+                    media_source = await asyncio.to_thread(
+                        media_get_source,
+                        track["url"],
+                        allowed_mime_types=self.music_config["Allowed_Mime_Types"],
+                    )
+                    break
+                except Exception as exc:
+                    error(
+                        self,
+                        f"Could not get media source for track ID {track['id']} - {exc}",
+                        self.interaction.guild,
+                    )
+                    if playback_id != self._playback_id or self.stopped:
+                        return
+                    # One unplayable track (private, deleted, age-restricted) must not end the queue
+                    failures += 1
+                    if failures >= max_failures or not self._advance_playlist():
+                        warn(
+                            self,
+                            "No playable tracks left in the queue",
+                            self.interaction.guild,
+                        )
+                        await self.stop_track()
+                        return
+                    info(self, "Skipping the unplayable track", self.interaction.guild)
         if playback_id == self._playback_id and not self.stopped:
-            self.play_track(stream_url, media_source=media_source)
+            self.play_track(stream_url, media_source=media_source, count=count)
 
     async def _resume_if_idle(self, voice):
         if voice.is_playing() or voice.is_paused():
             return
         if self._next_track_task is not None and not self._next_track_task.done():
             return
-        await self._resume_playback()
+        # A restart after a dropped connection is not a new play of the track
+        await self._resume_playback(count=False)
 
     def _start_voice_monitor(self):
         loop = self.interaction.client.loop
@@ -248,7 +280,7 @@ class Player:
         finally:
             self._recovering = False
 
-    def play_track(self, stream_url=None, *, media_source=None):
+    def play_track(self, stream_url=None, *, media_source=None, count=True):
         info(self, "Called")
         voice = self.interaction.guild.voice_client
 
@@ -265,6 +297,9 @@ class Player:
 
         self._playback_id += 1
         self._restart_audio = False
+        # A new playback makes any pending skip/prev request obsolete
+        self.prev = False
+        self._advance_requested = False
         playback_id = self._playback_id
         self.streaming = stream_url is not None
         self._stream_url = stream_url
@@ -303,12 +338,13 @@ class Player:
                 self.stopped = True
                 return False
 
-            info(
-                self,
-                f"Increasing playback count for track ID {track['id']}...",
-                self.interaction.guild,
-            )
-            self.play_counter.count_playback(track)
+            if count:
+                info(
+                    self,
+                    f"Increasing playback count for track ID {track['id']}...",
+                    self.interaction.guild,
+                )
+                self.play_counter.count_playback(track)
         else:
             self.streaming = True
             playback_url = stream_url
@@ -379,6 +415,7 @@ class Player:
             )
             return False
 
+        self.last_error = None
         allowed_mime_types = self.music_config["Allowed_Mime_Types"]
         media_source = None
         track_info = None
@@ -394,6 +431,7 @@ class Player:
                 error(
                     self, f"Could not get media source - {exc}", self.interaction.guild
                 )
+                self.last_error = describe_media_error(exc)
                 return False
 
             (source_info, url, _playback_url) = media_source
@@ -401,7 +439,16 @@ class Player:
             track_info = source_info.get("info") or {"title": title}
             self.playlist.add_track(title, url)
         elif len(self.playlist.get_tracks()) == 0:
+            self.last_error = "the queue is empty."
             return False
+
+        if self.streaming:
+            # Switching from the radio to a track: stop the stream without triggering the end-of-track handler
+            self._playback_id += 1
+            self.streaming = False
+            self._stream_url = None
+            if voice.is_playing():
+                voice.stop()
 
         if not voice.is_playing() and not voice.is_paused():
             current = self.playlist.get_current_track()
@@ -420,8 +467,10 @@ class Player:
                         f"Could not get media source for track ID {current['id']} - {exc}",
                         self.interaction.guild,
                     )
+                    self.last_error = describe_media_error(exc)
                     return False
             if self.play_track(media_source=media_source) is False:
+                self.last_error = "playback could not be started (see the bot log for details)."
                 return False
 
         return track_info if query is not None else True
@@ -442,6 +491,7 @@ class Player:
         )
 
     async def queue_playlist(self, query, reimport=False):
+        self.last_error = None
         info(
             self, f"Attempting to queue a playlist: {query}...", self.interaction.guild
         )
@@ -462,10 +512,16 @@ class Player:
                     else "New playlist will be created",
                     self.interaction.guild,
                 )
-                entries = await asyncio.to_thread(media_get_playlist, query)
+                errors = []
+                entries = await asyncio.to_thread(media_get_playlist, query, errors)
                 if not entries or len(entries) == 0:
                     error(
                         self, "Invalid link or playlist empty", self.interaction.guild
+                    )
+                    self.last_error = (
+                        errors[0]
+                        if errors
+                        else "the playlist is empty, private or unavailable."
                     )
                     return None
 
@@ -489,6 +545,7 @@ class Player:
             playlist = Playlist(self.interaction.guild.id, query)
             if not playlist.load_from_storage():
                 error(self, "Failed to load the playlist", self.interaction.guild)
+                self.last_error = f"there is no saved playlist named '{query}'."
                 return None
 
             self.playlist = playlist
@@ -501,6 +558,7 @@ class Player:
 
         self.jump_to_index = -1
         self.prev = False
+        self._advance_requested = True
 
         voice = self.interaction.guild.voice_client
         if voice is None or not voice.is_connected():
@@ -537,6 +595,7 @@ class Player:
 
         self.jump_to_index = -1
         self.prev = True
+        self._advance_requested = True
 
         voice = self.interaction.guild.voice_client
         if voice is None or not voice.is_connected():
@@ -554,6 +613,7 @@ class Player:
         self._playback_id += 1
         self.jump_to_index = -1
         self.prev = False
+        self._advance_requested = False
         self.stopped = True
         self.streaming = False
         self._stream_url = None

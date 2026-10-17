@@ -212,6 +212,125 @@ class PlayerTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
         self.assertEqual(self.player.playlist.get_current_track()["id"], first)
 
+    def titles_after_unplayable(self, unplayable, **options):
+        self.player.options.update(options)
+
+        def source(url, allowed_mime_types=None):
+            if url in unplayable:
+                raise RuntimeError("Private video")
+            return {}, url, "audio"
+
+        return patch("hifisuperstar.core.Music.Player.media_get_source", source)
+
+    async def test_unplayable_track_is_skipped_instead_of_ending_the_queue(self):
+        self.player.playlist.jump_to(1)  # "two" can not be loaded
+        with (
+            self.titles_after_unplayable({"two"}),
+            patch.object(self.player, "play_track", return_value=True) as play,
+        ):
+            await self.player._resume_playback()
+        self.assertEqual(self.player.playlist.get_current_track()["title"], "Three")
+        self.assertFalse(self.player.stopped)
+        play.assert_called_once()
+        self.assertEqual(play.call_args.kwargs["media_source"][1], "three")
+
+    async def test_queue_stops_when_no_track_is_playable(self):
+        self.player.playlist.jump_to(0)
+        with (
+            self.titles_after_unplayable({"one", "two", "three"}),
+            patch.object(self.player, "play_track") as play,
+            patch.object(self.player, "stop_track", new=AsyncMock()) as stop,
+        ):
+            await self.player._resume_playback()
+        play.assert_not_called()
+        stop.assert_awaited_once()
+
+    async def test_unplayable_tracks_do_not_loop_forever_with_repeat_all(self):
+        self.player.playlist.jump_to(0)
+        with (
+            self.titles_after_unplayable({"one", "two", "three"}, repeat_all=True),
+            patch.object(self.player, "stop_track", new=AsyncMock()) as stop,
+        ):
+            await asyncio.wait_for(self.player._resume_playback(), timeout=2)
+        stop.assert_awaited_once()
+
+    async def finish_track(self):
+        with patch.object(self.player, "_resume_playback", new=AsyncMock()):
+            self.player._after_track(None, self.player._playback_id)
+            await asyncio.sleep(0)
+
+    async def test_skip_moves_on_even_when_repeat_is_on(self):
+        self.player.options["repeat"] = True
+        self.player.skip_track()
+        await self.finish_track()
+        self.assertEqual(self.player.playlist.get_current_track()["title"], "Two")
+
+    async def test_prev_goes_back_even_when_repeat_is_on(self):
+        self.player.playlist.jump_to(1)
+        self.player.options["repeat"] = True
+        self.player.prev_track()
+        await self.finish_track()
+        self.assertEqual(self.player.playlist.get_current_track()["title"], "One")
+
+    async def test_repeat_still_replays_when_the_track_ends_by_itself(self):
+        self.player.options["repeat"] = True
+        await self.finish_track()
+        self.assertEqual(self.player.playlist.get_current_track()["title"], "One")
+
+    async def test_prev_with_repeat_does_not_reverse_playback_later(self):
+        self.player.playlist.jump_to(1)
+        self.player.options["repeat"] = True
+        self.player.prev_track()
+        await self.finish_track()
+        self.player.options["repeat"] = False
+        await self.finish_track()
+        self.assertEqual(self.player.playlist.get_current_track()["title"], "Two")
+
+    async def test_starting_a_track_clears_pending_skip_requests(self):
+        self.player.prev = True
+        self.player._advance_requested = True
+        self.player.play_track(media_source=({}, "one", "audio"))
+        self.assertFalse(self.player.prev)
+        self.assertFalse(self.player._advance_requested)
+
+    async def test_reconnect_resume_does_not_count_a_new_play(self):
+        with patch("hifisuperstar.core.Music.Player.media_get_source") as source:
+            source.return_value = ({}, "one", "audio")
+            self.player.interaction.guild.voice_client.source = None
+            await self.player._resume_if_idle(self.voice)
+        self.player.play_counter.count_playback.assert_not_called()
+
+    def test_a_fresh_track_counts_a_play(self):
+        with (
+            patch("hifisuperstar.core.Music.Player.discord.FFmpegPCMAudio"),
+            patch("hifisuperstar.core.Music.Player.discord.PCMVolumeTransformer"),
+            patch.object(self.player, "_start_voice_monitor"),
+        ):
+            self.player.play_track(media_source=({}, "one", "audio"))
+            self.player.play_counter.count_playback.assert_called_once()
+            self.player.play_track(media_source=({}, "one", "audio"), count=False)
+            self.player.play_counter.count_playback.assert_called_once()
+
+    async def test_queueing_a_track_while_the_radio_plays_switches_to_the_track(self):
+        self.player.streaming = True
+        self.player._stream_url = "radio"
+        self.voice.is_playing.side_effect = [True, False, False]
+        playback_id = self.player._playback_id
+        with (
+            patch(
+                "hifisuperstar.core.Music.Player.media_get_source",
+                return_value=({"info": {"title": "Song"}}, "song", "audio"),
+            ),
+            patch.object(self.player, "play_track", return_value=True) as play,
+        ):
+            self.player.playlist.clear()
+            result = await self.player.queue_track("song")
+        self.assertTrue(result)
+        self.voice.stop.assert_called_once()
+        self.assertGreater(self.player._playback_id, playback_id)  # old callback is stale
+        self.assertFalse(self.player.streaming)
+        play.assert_called_once()
+
     async def test_skip_clears_a_pending_prev(self):
         self.player.prev = True
         self.assertTrue(self.player.skip_track())
@@ -306,6 +425,63 @@ class LLMTests(TemporaryDirectoryCase):
         asyncio.run(run())
 
 
+class FailureReasonTests(unittest.IsolatedAsyncioTestCase):
+    def test_youtube_errors_are_explained(self):
+        from hifisuperstar.core.Music.MediaErrors import describe_media_error
+
+        cases = {
+            "ERROR: [youtube] x: Sign in to confirm your age. This video may be inappropriate for some users.": "18+",
+            "ERROR: [youtube] x: Private video. Sign in if you've been granted access": "private",
+            "ERROR: [youtube] x: The uploader has not made this video available in your country": "region",
+            "ERROR: [youtube] x: Video unavailable. This video contains content from Y, who has blocked it on copyright grounds": "copyright",
+            "ERROR: [youtube] x: Sign in to confirm you're not a bot": "cookies",
+            "ERROR: [youtube] x: Video unavailable": "unavailable",
+        }
+        for message, expected in cases.items():
+            with self.subTest(expected=expected):
+                self.assertIn(expected, describe_media_error(DownloadError(message)))
+        self.assertIn("timed out", describe_media_error(TimeoutError()))
+        self.assertEqual(
+            describe_media_error(DownloadError("ERROR: [youtube] x: odd failure")),
+            "odd failure",
+        )
+
+    def test_empty_search_raises_a_readable_error(self):
+        from hifisuperstar.core.Music.MediaErrors import (
+            MediaNotFoundError,
+            describe_media_error,
+        )
+
+        with self.assertRaises(MediaNotFoundError) as raised:
+            YouTube.first_search_entry({"entries": [None]}, "nothing here")
+        self.assertIn("nothing here", describe_media_error(raised.exception))
+
+    async def test_queue_track_records_why_it_failed(self):
+        guild = SimpleNamespace(id=11, name="Test", voice_client=MagicMock())
+        guild.voice_client.is_connected.return_value = True
+        interaction = SimpleNamespace(guild=guild, client=SimpleNamespace())
+        with patch("hifisuperstar.core.Music.Player.PlayCounter"):
+            player = Player(interaction, {"MusicCog": {"Allowed_Mime_Types": []}})
+
+        def blocked(query, allowed_mime_types=None):
+            raise DownloadError("ERROR: [youtube] x: Private video. Sign in")
+
+        with patch("hifisuperstar.core.Music.Player.media_get_source", blocked):
+            self.assertFalse(await player.queue_track("song"))
+        self.assertIn("private", player.last_error)
+
+        from hifisuperstar.cogs.Music.MusicCog import format_queue_failure
+
+        self.assertEqual(
+            format_queue_failure("song", player),
+            "ERROR: Failed to queue 'song': the video is private.",
+        )
+        self.assertEqual(
+            format_queue_failure("song", SimpleNamespace(last_error=None)),
+            "ERROR: Failed to queue 'song'",
+        )
+
+
 class ReimportTests(TemporaryDirectoryCase):
     def make_player(self):
         guild = SimpleNamespace(id=11, name="Test", voice_client=None)
@@ -388,6 +564,57 @@ class VolumeTests(TemporaryDirectoryCase):
         player.interaction.guild.voice_client = SimpleNamespace(source=source)
         player.set_volume(0.5)
         self.assertEqual(source.volume, 0.5)
+
+
+class PlaylistRegressionTests(TemporaryDirectoryCase):
+    def test_track_ids_are_unique_even_when_the_generator_repeats(self):
+        ids = iter(["same", "same", "same", "other"])
+        playlist = Playlist(11, "Dupes")
+        with patch(
+            "hifisuperstar.core.Music.Playlist.str_rand_crc32", lambda: next(ids)
+        ):
+            playlist.add_track("A", "a")
+            playlist.add_track("B", "b")
+        self.assertEqual([t["id"] for t in playlist.tracks], ["same", "other"])
+
+    def test_remove_track_by_id_keeps_the_current_track(self):
+        playlist = Playlist(11, "Q")
+        for name in "abc":
+            playlist.add_track(name, name)
+        playlist.jump_to(2)
+        self.assertTrue(playlist.remove_track(playlist.tracks[0]["id"]))
+        self.assertEqual(playlist.get_current_track()["title"], "c")
+        self.assertFalse(playlist.remove_track("missing"))
+
+    def test_failed_save_does_not_rename_the_live_queue(self):
+        from hifisuperstar.cogs.Music.MusicCog import MusicCog
+
+        existing = Playlist(11, "Existing")
+        existing.add_track("X", "x")
+        self.assertTrue(existing.save())
+        live = Playlist(11)
+        live.add_track("Live", "live")
+        original_name = live.get_name()
+        cog = MusicCog.__new__(MusicCog)
+        cog.get_player = AsyncMock(
+            return_value=SimpleNamespace(get_playlist=lambda: live)
+        )
+        interaction = SimpleNamespace(guild=SimpleNamespace(id=11, name="T"))
+        respond = AsyncMock()
+        with (
+            patch(
+                "hifisuperstar.cogs.Music.MusicCog.check_server",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "hifisuperstar.cogs.Music.MusicCog.Acl.check_and_fail",
+                new=AsyncMock(return_value=True),
+            ),
+            patch("hifisuperstar.cogs.Music.MusicCog.respond", respond),
+        ):
+            asyncio.run(MusicCog.playlist_save.callback(cog, interaction, "Existing"))
+        self.assertIn("ERROR", respond.await_args.args[1])
+        self.assertEqual(live.get_name(), original_name)
 
 
 class WebTests(unittest.TestCase):

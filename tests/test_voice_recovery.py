@@ -82,7 +82,7 @@ class VoiceRecoveryTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
             await self.player._next_track_task
             self.assertEqual(self.player.playlist.get_current_track_index(), 1)
-            play.assert_called_once_with(None, media_source=({}, "resolved", "audio"))
+            play.assert_called_once_with(None, media_source=({}, "resolved", "audio"), count=True)
 
     async def test_recovery_reconnects_and_restarts_same_track_or_radio(self):
         for streaming in (False, True):
@@ -120,6 +120,7 @@ class VoiceRecoveryTests(unittest.IsolatedAsyncioTestCase):
                     play.assert_called_once_with(
                         "radio" if streaming else None,
                         media_source=None if streaming else ({}, "resolved", "audio"),
+                        count=False,
                     )
                     self.assertEqual(self.player.playlist.get_current_track_index(), 0)
                     self.assertFalse(self.player._recovering)
@@ -161,7 +162,7 @@ class VoiceRecoveryTests(unittest.IsolatedAsyncioTestCase):
             patch.object(self.player, "play_track", side_effect=resume) as play,
         ):
             await self.player._monitor_voice()
-            play.assert_called_once_with(None, media_source=({}, "resolved", "audio"))
+            play.assert_called_once_with(None, media_source=({}, "resolved", "audio"), count=False)
 
     async def test_retry_exhaustion_resets_state_without_clearing_queue(self):
         self.voice.is_connected.return_value = False

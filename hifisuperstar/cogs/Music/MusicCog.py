@@ -24,6 +24,7 @@ from hifisuperstar.core.Music.MediaSourceProcessing.YouTube import (
     cache_youtube_info,
     download_and_cache_youtube_media,
     extract_youtube_info,
+    first_search_entry,
     get_cached_track_path,
     get_cached_youtube_info,
     get_youtube_opts,
@@ -76,9 +77,9 @@ def resolve_track_cache_url(track_url: str) -> str:
             "quiet": True,
         }
     ) as ydl:
-        yt_info = extract_youtube_info(ydl, f"ytsearch:{track_url}")["entries"][
-            0
-        ]
+        yt_info = first_search_entry(
+            extract_youtube_info(ydl, f"ytsearch:{track_url}"), track_url
+        )
         url = f"https://youtube.com/watch?v={yt_info['id']}"
         cache_youtube_info(track_url, url, yt_info)
         return url
@@ -110,6 +111,15 @@ def fit_description(lines, limit=4000) -> str:
         result.append(line)
         size += len(line) + 1
     return "\n".join(result)
+
+
+def format_queue_failure(target, player) -> str:
+    """The error message for a failed queue attempt, including the reason when one is known."""
+    target = str(target)
+    if len(target) > 100:
+        target = target[:99] + "…"
+    reason = getattr(player, "last_error", None)
+    return f"ERROR: Failed to queue '{target}'" + (f": {reason}" if reason else "")
 
 
 def format_duration(seconds) -> str:
@@ -842,7 +852,7 @@ class MusicCog(commands.Cog):
         track_info = await player.queue_track(query)
         if not track_info:
             error(self, "Failed to queue", interaction.guild)
-            return await respond(interaction, f"ERROR: Failed to queue '{query}'")
+            return await respond(interaction, format_queue_failure(query, player))
 
         await respond(interaction, f"Queued '{track_info['title']}'!")
 
@@ -886,7 +896,9 @@ class MusicCog(commands.Cog):
             error(self, "Failed to queue", interaction.guild)
             return await respond(
                 interaction,
-                f"ERROR: Failed to queue '{'the current playlist' if query is None else query}'",
+                format_queue_failure(
+                    "the current playlist" if query is None else query, player
+                ),
             )
 
         await respond(
@@ -1025,7 +1037,7 @@ class MusicCog(commands.Cog):
         if not playlist_info:
             error(self, "Failed to queue", interaction.guild)
             return await respond_or_send(
-                interaction, f"ERROR: Failed to queue '{query}'"
+                interaction, format_queue_failure(query, player)
             )
 
         # Only interrupt the current playback once the new playlist has loaded successfully
@@ -1388,9 +1400,12 @@ class MusicCog(commands.Cog):
 
         await respond(interaction, "Saving the playlist...")
         playlist = player.get_playlist()
+        previous_name = playlist.get_name()
         playlist.set_name(name)
 
         if not playlist.save(overwrite=overwrite):
+            # The live queue must keep its own name when saving it under another one fails
+            playlist.set_name(previous_name)
             error(self, "Failed to save the playlist", interaction.guild)
             return await respond(
                 interaction,

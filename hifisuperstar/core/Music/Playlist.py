@@ -203,7 +203,11 @@ class Playlist:
         self.name = name
 
     def add_track(self, title, url):
+        # Shuffle and removal identify tracks by ID, so an ID must never be used twice
+        existing_ids = {track["id"] for track in self.tracks}
         tid = str_rand_crc32()
+        while tid in existing_ids:
+            tid = str_rand_crc32()
         self.tracks.append({"id": tid, "title": title, "url": url})
 
         # If playback had naturally run off the end of the list (current_index == -1), queuing a
@@ -214,15 +218,12 @@ class Playlist:
         return True
 
     def remove_track(self, tid):
-        try:
-            index = self.tracks.index(
-                next(item for item in self.tracks if item["id"] == tid)
-            )
-            self.tracks.pop(index)
-        except:
-            return False
+        for index, track in enumerate(self.tracks):
+            if track["id"] == tid:
+                # Goes through remove_track_at_index so the current position stays on the same track
+                return self.remove_track_at_index(index) is not None
 
-        return True
+        return False
 
     def remove_track_at_index(self, index):
         if index < 0 or index >= len(self.tracks):

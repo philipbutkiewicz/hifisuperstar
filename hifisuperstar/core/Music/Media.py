@@ -30,15 +30,19 @@ def is_youtube_domain(url):
     return (urlparse(url).hostname or "").lower() in _YOUTUBE_DOMAINS
 
 
-def media_get_playlist(url):
+def media_get_playlist(url, errors=None):
     info(None, f"Media: Fetching YouTube playlist '{url}'...")
 
     if not validators.url(url):
         error(None, "Media: Invalid URL!")
+        if errors is not None:
+            errors.append("that is not a valid link.")
         return False
 
     if not is_youtube_domain(url):
         error(None, "Media: Invalid domain!")
+        if errors is not None:
+            errors.append("only YouTube playlist links are supported.")
         return False
 
     # URLs with both 'v' (a specific video) and 'list' make YouTube/yt-dlp start listing from that
@@ -48,7 +52,7 @@ def media_get_playlist(url):
     if list_id:
         url = f"https://www.youtube.com/playlist?list={list_id}"
 
-    return media_get_youtube_playlist(url)
+    return media_get_youtube_playlist(url, errors)
 
 
 def media_get_source(query, allowed_mime_types=None):
