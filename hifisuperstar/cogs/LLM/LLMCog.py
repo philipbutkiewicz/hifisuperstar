@@ -49,6 +49,15 @@ _MUSIC_REQUEST_RE = re.compile(
 _MUSIC_TOOL_NAMES = {"music_play", "music_play_many"}
 
 
+def _with_mode_reminder(text: str, music_cog, guild_id) -> str:
+    """Appends the repeat/shuffle reminder unless the model already repeated it."""
+    player = music_cog.players.get(str(guild_id)) if music_cog is not None else None
+    reminder = player.mode_reminder() if player is not None else ""
+    if not reminder or reminder in text:
+        return text
+    return f"{text}\n{reminder}"
+
+
 def _fix_mentions(guild, text: str) -> str:
     """Turns model-written <@display name> into a real mention, or plain @name when nobody matches."""
 
@@ -551,6 +560,7 @@ class LLMCog(commands.Cog):
         web_call_count = 0
         tool_rounds = 0
         music_tool_called = False
+        music_tool_used = False
         nudged = False
 
         try:
@@ -599,6 +609,8 @@ class LLMCog(commands.Cog):
                     info(self, f"Tool call: {tc['name']} args={tc['args']}")
                     if tc["name"] in _MUSIC_TOOL_NAMES:
                         music_tool_called = True
+                    if tc["name"].startswith("music_"):
+                        music_tool_used = True
 
                     if tc["name"] in web_tool_names:
                         web_call_count += 1
@@ -658,6 +670,11 @@ class LLMCog(commands.Cog):
 
             if not response_text:
                 return None, []
+
+            if music_tool_used:
+                response_text = _with_mode_reminder(
+                    response_text, music_cog, message.guild.id
+                )
 
             if web_sources:
                 sources_line = "-# Sources: " + " • ".join(

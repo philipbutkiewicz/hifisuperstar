@@ -289,12 +289,20 @@ class PlayerTests(unittest.IsolatedAsyncioTestCase):
     async def test_starting_a_track_clears_pending_skip_requests(self):
         self.player.prev = True
         self.player._advance_requested = True
-        self.player.play_track(media_source=({}, "one", "audio"))
+        with (
+            patch("hifisuperstar.core.Music.Player.discord.FFmpegPCMAudio"),
+            patch("hifisuperstar.core.Music.Player.discord.PCMVolumeTransformer"),
+        ):
+            self.player.play_track(media_source=({}, "one", "audio"))
         self.assertFalse(self.player.prev)
         self.assertFalse(self.player._advance_requested)
 
     async def test_reconnect_resume_does_not_count_a_new_play(self):
-        with patch("hifisuperstar.core.Music.Player.media_get_source") as source:
+        with (
+            patch("hifisuperstar.core.Music.Player.media_get_source") as source,
+            patch("hifisuperstar.core.Music.Player.discord.FFmpegPCMAudio"),
+            patch("hifisuperstar.core.Music.Player.discord.PCMVolumeTransformer"),
+        ):
             source.return_value = ({}, "one", "audio")
             self.player.interaction.guild.voice_client.source = None
             await self.player._resume_if_idle(self.voice)
@@ -330,6 +338,57 @@ class PlayerTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(self.player._playback_id, playback_id)  # old callback is stale
         self.assertFalse(self.player.streaming)
         play.assert_called_once()
+
+    async def test_mode_reminder_lists_every_active_mode(self):
+        self.assertEqual(self.player.mode_reminder(), "")
+        self.player.options["repeat"] = True
+        self.assertIn("/repeat", self.player.mode_reminder())
+        self.player.set_shuffle(True)
+        self.player.options["repeat_all"] = True
+        reminder = self.player.mode_reminder()
+        for command in ("/repeat.", "/repeat_all)", "/shuffle)"):
+            self.assertIn(command, reminder)
+        self.assertTrue(all(line.startswith("-# ") for line in reminder.splitlines()))
+
+    async def test_music_commands_remind_about_active_modes(self):
+        from hifisuperstar.cogs.Music.MusicCog import MusicCog
+
+        cog = MusicCog.__new__(MusicCog)
+        cog.get_player = AsyncMock(return_value=self.player)
+        interaction = SimpleNamespace(guild=self.voice.channel.guild)
+        respond = AsyncMock()
+        patches = (
+            patch("hifisuperstar.cogs.Music.MusicCog.check_server", new=AsyncMock(return_value=True)),
+            patch("hifisuperstar.cogs.Music.MusicCog.Acl.check_and_fail", new=AsyncMock(return_value=True)),
+            patch("hifisuperstar.cogs.Music.MusicCog.respond", respond),
+            patch.object(self.player, "skip_track", return_value=True),
+            patch.object(cog, "_require_same_channel", new=AsyncMock(return_value=True)),
+        )
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+        await MusicCog.skip.callback(cog, interaction)
+        self.assertEqual(respond.await_args.args[1], "Done!")
+
+        self.player.options["shuffle"] = True
+        await MusicCog.skip.callback(cog, interaction)
+        self.assertIn("Done!", respond.await_args.args[1])
+        self.assertIn("/shuffle", respond.await_args.args[1])
+
+    async def test_llm_music_tools_include_the_reminder(self):
+        from hifisuperstar.cogs.LLM.Tools.MusicTool import create_music_tools
+
+        music = SimpleNamespace(players={"11": self.player}, config={})
+        message = SimpleNamespace(
+            guild=SimpleNamespace(id=11), author=SimpleNamespace(id=1)
+        )
+        tools = {t.name: t for t in create_music_tools(music, message)}
+        with patch.object(self.player, "skip_track", return_value=True):
+            self.assertNotIn("-#", tools["music_skip"].invoke({}))
+            self.player.options["repeat"] = True
+            self.assertIn("Repeat is on", tools["music_skip"].invoke({}))
+        self.assertIn("Repeat is on", tools["music_get_queue"].invoke({}))
 
     async def test_skip_clears_a_pending_prev(self):
         self.player.prev = True
@@ -372,6 +431,18 @@ class LLMTests(TemporaryDirectoryCase):
             _fix_mentions(guild, "hi <@bagno> and <@BAGNZ0R> and <@999> and <@ghost>"),
             "hi <@42> and <@42> and <@999> and @ghost",
         )
+
+    def test_llm_reply_gets_the_reminder_once(self):
+        from hifisuperstar.cogs.LLM.LLMCog import _with_mode_reminder
+
+        player = MagicMock()
+        player.mode_reminder.return_value = "-# 🔀 Shuffle is on"
+        music = SimpleNamespace(players={"11": player})
+        reply = _with_mode_reminder("Queued it!", music, 11)
+        self.assertEqual(reply, "Queued it!\n-# 🔀 Shuffle is on")
+        self.assertEqual(_with_mode_reminder(reply, music, 11), reply)
+        self.assertEqual(_with_mode_reminder("Hi", music, 22), "Hi")
+        self.assertEqual(_with_mode_reminder("Hi", None, 11), "Hi")
 
     def test_music_play_many_returns_before_the_tracks_are_queued(self):
         import hifisuperstar.cogs.LLM.Tools.MusicTool as music_tool

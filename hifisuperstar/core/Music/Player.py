@@ -657,6 +657,23 @@ class Player:
 
         return True
 
+    def mode_reminder(self):
+        """A short note about the playback modes that are on (empty when none), so users don't think the bot is broken."""
+        notes = []
+        if self.options["repeat"]:
+            notes.append(
+                "🔂 Repeat is on: the same track keeps replaying until you turn it off with /repeat."
+            )
+        if self.options["repeat_all"]:
+            notes.append(
+                "🔁 Repeat all is on: the queue starts over when it ends (turn it off with /repeat_all)."
+            )
+        if self.options["shuffle"]:
+            notes.append(
+                "🔀 Shuffle is on: tracks play in random order (turn it off with /shuffle)."
+            )
+        return "\n".join(f"-# {note}" for note in notes)
+
     def set_repeat(self):
         self.options["repeat"] = not self.options["repeat"]
         return self.options["repeat"]

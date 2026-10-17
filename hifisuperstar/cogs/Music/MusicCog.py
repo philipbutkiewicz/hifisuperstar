@@ -113,6 +113,14 @@ def fit_description(lines, limit=4000) -> str:
     return "\n".join(result)
 
 
+def with_mode_reminder(content, player) -> str | None:
+    """Appends the repeat/shuffle reminder to a reply while one of those modes is on."""
+    reminder = player.mode_reminder() if player is not None else ""
+    if not reminder:
+        return content
+    return f"{content}\n{reminder}" if content else reminder
+
+
 def format_queue_failure(target, player) -> str:
     """The error message for a failed queue attempt, including the reason when one is known."""
     target = str(target)
@@ -854,7 +862,10 @@ class MusicCog(commands.Cog):
             error(self, "Failed to queue", interaction.guild)
             return await respond(interaction, format_queue_failure(query, player))
 
-        await respond(interaction, f"Queued '{track_info['title']}'!")
+        await respond(
+            interaction,
+            with_mode_reminder(f"Queued '{track_info['title']}'!", player),
+        )
 
     @app_commands.command(
         name="play",
@@ -903,7 +914,10 @@ class MusicCog(commands.Cog):
 
         await respond(
             interaction,
-            f"Queued '{track_info['title'] if not query is None else 'the current playlist'}'!",
+            with_mode_reminder(
+                f"Queued '{track_info['title'] if not query is None else 'the current playlist'}'!",
+                player,
+            ),
         )
 
     @app_commands.command(
@@ -1042,7 +1056,10 @@ class MusicCog(commands.Cog):
 
         # Only interrupt the current playback once the new playlist has loaded successfully
         await player.stop_track()
-        await respond_or_send(interaction, f"Queued {len(playlist_info)} items!")
+        await respond_or_send(
+            interaction,
+            with_mode_reminder(f"Queued {len(playlist_info)} items!", player),
+        )
 
     @app_commands.command(
         name="list_playlists", description="Lists available playlists"
@@ -1534,7 +1551,7 @@ class MusicCog(commands.Cog):
         await player.stop_track()
         player.get_playlist().clear()
 
-        await respond(interaction, "Done!")
+        await respond(interaction, with_mode_reminder("Done!", player))
 
     @app_commands.command(
         name="skip", description="Skips current item in the playback queue"
@@ -1566,7 +1583,7 @@ class MusicCog(commands.Cog):
         if player.skip_track() is False:
             return await respond(interaction, "ERROR: Nothing is playing.")
 
-        await respond(interaction, "Done!")
+        await respond(interaction, with_mode_reminder("Done!", player))
 
     @app_commands.command(
         name="jump_to_index", description="Skips to a specific index in the queue"
@@ -1612,7 +1629,7 @@ class MusicCog(commands.Cog):
         if player.skip_track_to_index(index - 1) is False:
             return await respond(interaction, "ERROR: Nothing is playing.")
 
-        await respond(interaction, "Done!")
+        await respond(interaction, with_mode_reminder("Done!", player))
 
     @app_commands.command(
         name="queue_remove", description="Removes a track from the playback queue by its index"
@@ -1696,7 +1713,7 @@ class MusicCog(commands.Cog):
         if player.prev_track() is False:
             return await respond(interaction, "ERROR: Nothing is playing.")
 
-        await respond(interaction, "Done!")
+        await respond(interaction, with_mode_reminder("Done!", player))
 
     @app_commands.command(
         name="queue", description="Lists all items in the playback queue"
@@ -1733,7 +1750,12 @@ class MusicCog(commands.Cog):
         )
 
         view = QueuePageView(player, per_page=per_page)
-        await respond(interaction, embed=view.build_embed(), view=view)
+        await respond(
+            interaction,
+            with_mode_reminder(None, player),
+            embed=view.build_embed(),
+            view=view,
+        )
         view.message = await interaction.original_response()
 
     @app_commands.command(

@@ -45,6 +45,12 @@ def create_music_tools(music_cog, message):
     guild_id = str(message.guild.id)
     denied = "Failed: you are not permitted to do that."
 
+    def _with_modes(text: str) -> str:
+        """Adds the repeat/shuffle reminder so the model (and the user) know why playback behaves oddly."""
+        player = music_cog.players.get(guild_id)
+        reminder = player.mode_reminder() if player is not None else ""
+        return f"{text}\n{reminder}" if reminder else text
+
     def _allowed(rule) -> bool:
         # The slash commands enforce the ACL; the LLM must not be a way around it
         return Acl(message.guild.id).is_allowed(rule, message.author.id, True)
@@ -68,7 +74,7 @@ def create_music_tools(music_cog, message):
             reason = player.last_error
             return f"Failed to queue '{query}'" + (f": {reason}" if reason else ".")
         title = track_info["title"] if isinstance(track_info, dict) else query
-        return f"Queued '{title}'."
+        return _with_modes(f"Queued '{title}'.")
 
     async def music_play_many(queries: list[str]) -> str:
         """Queue several songs in the background."""
@@ -91,7 +97,7 @@ def create_music_tools(music_cog, message):
             f"Started queueing {len(queries)} song(s) in the background; they will show up in the "
             "queue as they are found (the first one starts playing as soon as it is ready). "
             "Do not wait for them, just tell the user."
-        )
+        ) + _with_modes("")
 
     async def _queue_batch(player, queries):
         lock = _batch_locks.setdefault(guild_id, asyncio.Lock())
@@ -139,21 +145,21 @@ def create_music_tools(music_cog, message):
         player = _get_player()
         await player.stop_track()
         player.get_playlist().clear()
-        return "Playback stopped and queue cleared."
+        return _with_modes("Playback stopped and queue cleared.")
 
     def music_skip() -> str:
         """Skip the currently playing track."""
         if not _allowed(Rule.MUSIC_SKIP):
             return denied
         _get_player().skip_track()
-        return "Skipped to the next track."
+        return _with_modes("Skipped to the next track.")
 
     def music_prev() -> str:
         """Go back to the previous track."""
         if not _allowed(Rule.MUSIC_SKIP):
             return denied
         _get_player().prev_track()
-        return "Went back to the previous track."
+        return _with_modes("Went back to the previous track.")
 
     def music_set_shuffle(enabled: bool) -> str:
         """Turn shuffle mode on or off."""
@@ -177,7 +183,7 @@ def create_music_tools(music_cog, message):
         for i, t in enumerate(tracks):
             prefix = "▶ " if current and current["id"] == t["id"] else f"{i + 1}. "
             lines.append(f"{prefix}{t['title']}")
-        return "\n".join(lines)
+        return _with_modes("\n".join(lines))
 
     def music_remove_track(index: int) -> str:
         """Remove a track from the queue by its 1-based index (see music_get_queue). Cannot remove the currently playing track."""
