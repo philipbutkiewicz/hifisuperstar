@@ -28,6 +28,7 @@ from hifisuperstar.core.Music.MediaSourceProcessing.YouTube import (
     get_cached_track_path,
     get_cached_youtube_info,
     get_youtube_opts,
+    log_cookie_status,
     media_search_youtube,
     precache_youtube_track,
 )
@@ -829,6 +830,7 @@ class MusicCog(commands.Cog):
         self.players = {}
         self.playlist_downloads_in_progress = set()
         self.queue_precaches_in_progress = set()
+        log_cookie_status()
 
     async def get_player(self, interaction: discord.Interaction):
         if not await check_server(interaction):

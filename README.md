@@ -168,7 +168,7 @@ The browser listens on `127.0.0.1:5000` by default. Set `WEB_BIND` and `WEB_PORT
 - `Bot.Token` - your Discord bot token.
 - `Bot.Enabled_Cogs` - list of cog names to load (see the feature list above).
 - `Web.Enabled` / `Web.Base_Url` - enables linking to the optional Flask playlist browser from `/list_playlists`.
-- `MusicCog` - allowed MIME types for direct-link playback, how many tracks to show in `/top_tracks` and `/queue`, the radio stream URL, and an `S3` sub-section (Hetzner or any S3-compatible endpoint) used by `/playlist_download` / `/playlist_downloads`.
+- `MusicCog` - allowed MIME types for direct-link playback, how long the bot stays in voice after the queue ends (`Idle_Disconnect_Seconds`, default 60; queueing something new in that time keeps it there), how many tracks to show in `/top_tracks` and `/queue`, the radio stream URL, and an `S3` sub-section (Hetzner or any S3-compatible endpoint) used by `/playlist_download` / `/playlist_downloads`.
 - `SpotifyCog` - Spotify API client ID/secret for `/spotify_import_playlist`.
 - `AntiLoudmouthCog` - RMS decibel threshold for the loudmouth monitor.
 - `JokesCog` - which joke types are enabled.

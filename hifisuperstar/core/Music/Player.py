@@ -21,6 +21,7 @@ from hifisuperstar.io.Resources import load_resource, save_resource
 from hifisuperstar.io.Strings import str_hash_crc32
 
 DEFAULT_VOLUME = 0.02
+DEFAULT_IDLE_DISCONNECT_SECONDS = 60
 
 
 class Player:
@@ -51,6 +52,7 @@ class Player:
         self._stream_url = None
         self._restart_audio = False
         self._next_track_task = None
+        self._idle_task = None
         # Incremented by stop_track so background batch queueing can notice a stop
         self.stop_count = 0
         # Human readable reason why the last queue_track/queue_playlist call failed
@@ -120,14 +122,57 @@ class Player:
             else:
                 self.playlist.prev_track()
         elif not self._advance_playlist():
-            asyncio.run_coroutine_threadsafe(
-                self.stop_track(), self.interaction.client.loop
-            )
+            self._begin_idle_disconnect()
             return False
 
         self._next_track_task = self.interaction.client.loop.create_task(
             self._resume_playback()
         )
+
+    def _idle_seconds(self):
+        seconds = self.music_config.get(
+            "Idle_Disconnect_Seconds", DEFAULT_IDLE_DISCONNECT_SECONDS
+        )
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+            return DEFAULT_IDLE_DISCONNECT_SECONDS
+        return max(0, seconds)
+
+    def _begin_idle_disconnect(self):
+        """The queue is over: stay in the channel for a while in case someone queues more, then leave."""
+        self.stopped = True
+        self._cancel_idle_disconnect()
+        self._idle_task = self.interaction.client.loop.create_task(
+            self._idle_disconnect(self._idle_seconds())
+        )
+
+    def _cancel_idle_disconnect(self):
+        task = self._idle_task
+        self._idle_task = None
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+
+    async def _idle_disconnect(self, delay):
+        # Nothing is playing any more, so do not keep showing the last track as the status
+        try:
+            await self.interaction.client.change_presence(activity=None)
+        except discord.DiscordException as exc:
+            warn(self, f"Could not clear the presence: {exc}", self.interaction.guild)
+
+        info(
+            self,
+            f"Queue finished, leaving voice in {delay:g} seconds unless something is queued",
+            self.interaction.guild,
+        )
+        await asyncio.sleep(delay)
+
+        voice = self.interaction.guild.voice_client
+        if not self.stopped or (
+            voice is not None and (voice.is_playing() or voice.is_paused())
+        ):
+            return
+
+        info(self, "Idle for too long, leaving voice", self.interaction.guild)
+        await self.stop_track()
 
     def _advance_playlist(self):
         """Moves to the next track; returns False when the queue is over."""
@@ -187,7 +232,7 @@ class Player:
                             "No playable tracks left in the queue",
                             self.interaction.guild,
                         )
-                        await self.stop_track()
+                        self._begin_idle_disconnect()
                         return
                     info(self, "Skipping the unplayable track", self.interaction.guild)
         if playback_id == self._playback_id and not self.stopped:
@@ -297,6 +342,7 @@ class Player:
 
         self._playback_id += 1
         self._restart_audio = False
+        self._cancel_idle_disconnect()
         # A new playback makes any pending skip/prev request obsolete
         self.prev = False
         self._advance_requested = False
@@ -610,6 +656,7 @@ class Player:
 
     async def stop_track(self):
         self.stop_count += 1
+        self._cancel_idle_disconnect()
         self._playback_id += 1
         self.jump_to_index = -1
         self.prev = False

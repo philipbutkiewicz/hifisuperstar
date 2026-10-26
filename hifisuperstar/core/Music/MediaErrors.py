@@ -3,6 +3,7 @@
 # Copyright (c) 2021 - 2026 by Philip Butkiewicz and contributors <https://github.com/philipbutkiewicz>
 #
 
+import os
 import re
 
 from yt_dlp.networking.exceptions import TransportError
@@ -13,14 +14,34 @@ class MediaNotFoundError(Exception):
     """Nothing matched the request (e.g. an empty YouTube search)."""
 
 
-# (substrings of the lowercased yt-dlp message, explanation shown to the user), first match wins
+def _cookies_configured():
+    return bool(os.environ.get("HIFI_YOUTUBE_COOKIE_FILE"))
+
+
+_NO_COOKIES = " No YouTube cookie file is configured for the bot, an admin needs to set one up (see the README)."
+_COOKIES_REJECTED = (
+    " The bot does have cookies configured, but YouTube did not accept them: they may have expired, "
+    "or the account is not logged in / not age-verified. An admin needs to export fresh cookies and restart the bot."
+)
+
+
+def _bot_check_reason():
+    return "YouTube is asking the bot to prove it is not a bot." + (
+        _COOKIES_REJECTED if _cookies_configured() else _NO_COOKIES
+    )
+
+
+def _age_reason():
+    return "the video is age-restricted (18+), so YouTube only serves it to a logged-in adult account." + (
+        _COOKIES_REJECTED if _cookies_configured() else _NO_COOKIES
+    )
+
+
+# (substrings of the lowercased yt-dlp message, explanation or a function building it), first match wins
 _YOUTUBE_REASONS = (
     (
         ("not a bot", "confirm you’re not a bot", "confirm you're not a bot"),
-        (
-            "YouTube is asking the bot to prove it is not a bot. "
-            "The bot's YouTube cookies are missing or expired."
-        ),
+        _bot_check_reason,
     ),
     (
         (
@@ -29,10 +50,7 @@ _YOUTUBE_REASONS = (
             "age restricted",
             "inappropriate for some users",
         ),
-        (
-            "the video is age-restricted (18+), so YouTube only serves it to a logged-in account. "
-            "The bot needs YouTube cookies from an adult account to play it."
-        ),
+        _age_reason,
     ),
     (
         ("private video",),
@@ -117,7 +135,7 @@ def describe_media_error(exc):
     if isinstance(exc, DownloadError) or "youtube" in lowered:
         for markers, reason in _YOUTUBE_REASONS:
             if any(marker in lowered for marker in markers):
-                return reason
+                return reason() if callable(reason) else reason
 
     if not message:
         return f"an unexpected {type(exc).__name__} occurred."

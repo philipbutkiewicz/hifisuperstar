@@ -357,6 +357,29 @@ def get_cached_youtube_source(query):
     return {"info": cached["info"], "is_youtube": True}, cached["url"], audio_path
 
 
+# Where people tend to put an exported cookie file; they are only used when HIFI_YOUTUBE_COOKIE_FILE points to them
+_COMMON_COOKIE_LOCATIONS = ("cookies/youtube.txt", "cookies.txt")
+
+
+def log_cookie_status():
+    """Logs (never the contents) whether YouTube cookies are in use, so a missing setting is easy to spot."""
+    cookie_file = os.environ.get("HIFI_YOUTUBE_COOKIE_FILE")
+    if cookie_file:
+        info(None, f"YouTube: using the cookie file '{cookie_file}'")
+        return
+
+    unused = [path for path in _COMMON_COOKIE_LOCATIONS if os.path.isfile(path)]
+    if unused:
+        warn(
+            None,
+            f"YouTube: found '{unused[0]}' but it is NOT used because HIFI_YOUTUBE_COOKIE_FILE is not set. "
+            f"Start the bot with HIFI_YOUTUBE_COOKIE_FILE=\"$PWD/{unused[0]}\" to use it "
+            "(age-restricted videos need cookies)",
+        )
+    else:
+        info(None, "YouTube: no cookie file configured (HIFI_YOUTUBE_COOKIE_FILE)")
+
+
 def get_youtube_opts() -> dict[str, object]:
     opts: dict[str, object] = {"js_runtimes": {"deno": {}, "node": {}}}
     cookie_file = os.environ.get("HIFI_YOUTUBE_COOKIE_FILE")

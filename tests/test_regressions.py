@@ -174,6 +174,7 @@ class PlayerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.player.prev)
 
     async def test_shuffle_plays_every_track_once_then_stops(self):
+        self.player.music_config["Idle_Disconnect_Seconds"] = 0
         self.assertTrue(self.player.set_shuffle())
         seen = [self.player.playlist.get_current_track()["id"]]
         with (
@@ -237,6 +238,7 @@ class PlayerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(play.call_args.kwargs["media_source"][1], "three")
 
     async def test_queue_stops_when_no_track_is_playable(self):
+        self.player.music_config["Idle_Disconnect_Seconds"] = 0
         self.player.playlist.jump_to(0)
         with (
             self.titles_after_unplayable({"one", "two", "three"}),
@@ -244,16 +246,19 @@ class PlayerTests(unittest.IsolatedAsyncioTestCase):
             patch.object(self.player, "stop_track", new=AsyncMock()) as stop,
         ):
             await self.player._resume_playback()
+            await asyncio.sleep(0.05)
         play.assert_not_called()
         stop.assert_awaited_once()
 
     async def test_unplayable_tracks_do_not_loop_forever_with_repeat_all(self):
+        self.player.music_config["Idle_Disconnect_Seconds"] = 0
         self.player.playlist.jump_to(0)
         with (
             self.titles_after_unplayable({"one", "two", "three"}, repeat_all=True),
             patch.object(self.player, "stop_track", new=AsyncMock()) as stop,
         ):
             await asyncio.wait_for(self.player._resume_playback(), timeout=2)
+            await asyncio.sleep(0.05)
         stop.assert_awaited_once()
 
     async def finish_track(self):
@@ -340,6 +345,58 @@ class PlayerTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(self.player._playback_id, playback_id)  # old callback is stale
         self.assertFalse(self.player.streaming)
         play.assert_called_once()
+
+    async def end_the_queue(self, seconds):
+        self.player.music_config["Idle_Disconnect_Seconds"] = seconds
+        self.player.playlist.jump_to(2)
+        self.player.interaction.client.change_presence = AsyncMock()
+        self.voice.disconnect = AsyncMock()
+        with patch.object(self.player, "_resume_playback", new=AsyncMock()):
+            self.player._after_track(None, self.player._playback_id)
+            await asyncio.sleep(0.01)
+
+    async def test_bot_stays_in_voice_for_a_while_after_the_queue_ends(self):
+        await self.end_the_queue(0.2)
+        self.assertTrue(self.player.stopped)
+        self.voice.disconnect.assert_not_awaited()  # still in the channel
+        self.player.interaction.client.change_presence.assert_awaited_once_with(
+            activity=None
+        )  # but no longer shows the last track as the status
+        await asyncio.sleep(0.4)
+        self.voice.disconnect.assert_awaited_once()
+
+    async def test_queueing_during_the_wait_keeps_the_bot_in_voice(self):
+        await self.end_the_queue(0.2)
+        with (
+            patch("hifisuperstar.core.Music.Player.discord.FFmpegPCMAudio"),
+            patch("hifisuperstar.core.Music.Player.discord.PCMVolumeTransformer"),
+            patch.object(self.player, "_start_voice_monitor"),
+        ):
+            self.player.playlist.add_track("Four", "four")
+            self.assertTrue(self.player.play_track(media_source=({}, "four", "audio")))
+        self.assertIsNone(self.player._idle_task)
+        await asyncio.sleep(0.4)
+        self.voice.disconnect.assert_not_awaited()
+
+    async def test_stop_cancels_the_pending_idle_disconnect(self):
+        await self.end_the_queue(0.2)
+        idle = self.player._idle_task
+        with patch.object(self.player.interaction.client, "change_presence", new=AsyncMock()):
+            await self.player.stop_track()
+        await asyncio.sleep(0)
+        self.assertTrue(idle.cancelled())
+        self.assertIsNone(self.player._idle_task)
+        self.voice.disconnect.assert_awaited_once()  # from stop_track itself, not from the timer
+        await asyncio.sleep(0.4)
+        self.voice.disconnect.assert_awaited_once()
+
+    async def test_idle_delay_defaults_to_a_minute_and_ignores_bad_values(self):
+        self.assertEqual(self.player._idle_seconds(), 60)
+        for bad in ("soon", None, True, -5):
+            self.player.music_config["Idle_Disconnect_Seconds"] = bad
+            self.assertEqual(self.player._idle_seconds(), 0 if bad == -5 else 60, bad)
+        self.player.music_config["Idle_Disconnect_Seconds"] = 90
+        self.assertEqual(self.player._idle_seconds(), 90)
 
     async def test_mode_reminder_lists_every_active_mode(self):
         self.assertEqual(self.player.mode_reminder(), "")
@@ -507,7 +564,7 @@ class FailureReasonTests(unittest.IsolatedAsyncioTestCase):
             "ERROR: [youtube] x: Private video. Sign in if you've been granted access": "private",
             "ERROR: [youtube] x: The uploader has not made this video available in your country": "region",
             "ERROR: [youtube] x: Video unavailable. This video contains content from Y, who has blocked it on copyright grounds": "copyright",
-            "ERROR: [youtube] x: Sign in to confirm you're not a bot": "cookies",
+            "ERROR: [youtube] x: Sign in to confirm you're not a bot": "not a bot",
             "ERROR: [youtube] x: Video unavailable": "unavailable",
         }
         for message, expected in cases.items():
@@ -518,6 +575,49 @@ class FailureReasonTests(unittest.IsolatedAsyncioTestCase):
             describe_media_error(DownloadError("ERROR: [youtube] x: odd failure")),
             "odd failure",
         )
+
+    def test_age_restriction_reason_depends_on_the_cookie_setup(self):
+        from hifisuperstar.core.Music.MediaErrors import describe_media_error
+
+        error = DownloadError("ERROR: [youtube] x: Sign in to confirm your age. Use --cookies")
+        with patch.dict(os.environ, {"HIFI_YOUTUBE_COOKIE_FILE": ""}):
+            reason = describe_media_error(error)
+        self.assertIn("No YouTube cookie file is configured", reason)
+
+        with patch.dict(os.environ, {"HIFI_YOUTUBE_COOKIE_FILE": "/some/cookies.txt"}):
+            reason = describe_media_error(error)
+        self.assertIn("did not accept them", reason)
+        self.assertNotIn("No YouTube cookie file", reason)
+
+    def test_cookie_status_is_logged_without_the_contents(self):
+        from hifisuperstar.core.Music.MediaSourceProcessing import YouTube as yt
+
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        previous_directory = os.getcwd()
+        os.chdir(directory.name)
+        self.addCleanup(os.chdir, previous_directory)
+        os.makedirs("cookies")
+        with open("cookies/youtube.txt", "w") as file:
+            file.write("SECRET-VALUE")
+        with (
+            patch.dict(os.environ, {"HIFI_YOUTUBE_COOKIE_FILE": ""}),
+            patch.object(yt, "warn") as warn,
+            patch.object(yt, "info") as info,
+        ):
+            yt.log_cookie_status()
+        warn.assert_called_once()
+        self.assertIn("NOT used", warn.call_args.args[1])
+        self.assertIn("cookies/youtube.txt", warn.call_args.args[1])
+        self.assertNotIn("SECRET-VALUE", str(warn.call_args))
+        info.assert_not_called()
+
+        with (
+            patch.dict(os.environ, {"HIFI_YOUTUBE_COOKIE_FILE": "/x/y.txt"}),
+            patch.object(yt, "info") as info,
+        ):
+            yt.log_cookie_status()
+        self.assertIn("/x/y.txt", info.call_args.args[1])
 
     def test_empty_search_raises_a_readable_error(self):
         from hifisuperstar.core.Music.MediaErrors import (
